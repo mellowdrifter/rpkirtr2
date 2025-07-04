@@ -2,9 +2,11 @@ package server
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
+	"io"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/mellowdrifter/rpkirtr2/internal/protocol"
 
@@ -12,15 +14,16 @@ import (
 )
 
 type Client struct {
-	conn   net.Conn
-	reader *bufio.Reader
-	writer *bufio.Writer
-	logger *zap.SugaredLogger
-	id     string
-	proto  protocol.Handler
+	conn      net.Conn
+	reader    *bufio.Reader
+	writer    *bufio.Writer
+	logger    *zap.SugaredLogger
+	id        string
+	closeOnce sync.Once
+	handler   *protocol.ProtocolHandler
 }
 
-// NewClient creates a new client connection wrapper
+// NewClient wraps a new connection into a Client instance.
 func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger) *Client {
 	remote := conn.RemoteAddr().String()
 	logger := baseLogger.With("client", remote)
@@ -34,36 +37,87 @@ func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger) *Client {
 	}
 }
 
-// ID returns the unique ID for this client (IP:port)
+// ID returns the unique identifier for the client (IP:Port).
 func (c *Client) ID() string {
 	return c.id
 }
 
-// Handle runs the client session: negotiates version, then processes messages
+// Handle manages the full lifecycle of the client connection.
 func (c *Client) Handle() error {
-	c.logger.Info("Starting session")
+	defer c.Close()
 
-	// Step 1: Protocol version negotiation
-	handler, err := protocol.Negotiate(c.reader, c.writer)
+	c.logger.Info("Client session started")
+
+	// Step 1: Version negotiation
+	ver, err := protocol.Negotiate(c.reader)
 	if err != nil {
-		return fmt.Errorf("version negotiation failed: %w", err)
+		c.logger.Warnf("Negotiation failed: %v", err)
+		c.sendAndCloseError("NEGOTIATION_FAILED")
+		return err
 	}
-	c.proto = handler
-	c.logger.Infof("Negotiated protocol: %T", handler)
+	c.handler = protocol.NewProtocolHandler(ver) // Initialize protocol handler
 
-	// Step 2: Read-process loop
+	// Step 2: Send protocol-specific initial response(s)
+	if err := c.handler.SendInitialMessages(c.writer); err != nil {
+		c.logger.Warnf("Failed to send initial messages: %v", err)
+		c.sendAndCloseError("INIT_FAILED")
+		return err
+	}
+
+	// Step 3: Main read-process loop
 	for {
-		msg, err := c.proto.ReadMessage(c.reader)
+		msg, err := c.handler.ReadMessage(c.reader)
 		if err != nil {
-			if strings.Contains(err.Error(), "EOF") {
+			if isDisconnectError(err) {
 				c.logger.Info("Client disconnected")
 				return nil
 			}
-			return fmt.Errorf("read error: %w", err)
+			c.logger.Warnf("Read error: %v", err)
+			c.sendAndCloseError("READ_ERROR")
+			return err
 		}
 
-		if err := c.proto.HandleMessage(msg, c.writer); err != nil {
-			return fmt.Errorf("message handling error: %w", err)
+		if err := c.handler.HandleMessage(msg, c.writer); err != nil {
+			c.logger.Warnf("Message handling error: %v", err)
+			c.sendAndCloseError("BAD_REQUEST")
+			return err
 		}
 	}
+}
+
+// sendAndCloseError sends a protocol error PDU and closes the connection.
+func (c *Client) sendAndCloseError(msg string) {
+	if c.writer == nil {
+		return
+	}
+	pdu := protocol.PDU{
+		Type:    protocol.PDUTypeError,
+		Payload: []byte(msg),
+	}
+	data, err := pdu.Marshal()
+	if err == nil {
+		_, _ = c.writer.Write(data)
+		_ = c.writer.Flush()
+	}
+	_ = c.conn.Close()
+}
+
+// isDisconnectError checks whether an error is due to client disconnection.
+func isDisconnectError(err error) bool {
+	return errors.Is(err, io.EOF) ||
+		strings.Contains(err.Error(), "use of closed network connection") ||
+		strings.Contains(err.Error(), "connection reset by peer")
+}
+
+// Close terminates the client connection and logs the cleanup step.
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		c.logger.Infof("Closing connection to client: %s", c.id)
+
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+
+		// TODO: Cleanup other state if needed
+	})
 }

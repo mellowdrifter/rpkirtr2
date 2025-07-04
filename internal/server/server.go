@@ -67,8 +67,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	s.logger.Infof("Client connected: %s", id)
 
-	// Optional: version negotiation here
-
 	if err := client.Handle(); err != nil {
 		s.logger.Warnf("Client %s error: %v", id, err)
 	}
