@@ -26,9 +26,6 @@ func main() {
 	logger := logging.New(cfg.LogLevel)
 
 	logger.Info("Starting daemon...")
-	logger.Debug("This is a debug message")
-	logger.Warn("Something might be wrong")
-	logger.Error("Something definitely went wrong")
 
 	// Create and start the server
 	srv := server.New(cfg, logger)

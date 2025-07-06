@@ -1,16 +1,47 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
-	"io"
-	"log"
+	"fmt"
 	"net/http"
 	"net/netip"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
 )
+
+type roa struct {
+	Prefix  netip.Prefix
+	ASN     uint32
+	MaxMask uint8
+}
+
+type diffs struct {
+	old    uint32
+	new    uint32
+	delRoa []roa
+	addRoa []roa
+	diff   bool
+}
+
+type Jsonroa struct {
+	Prefix string `json:"prefix"`
+	Mask   uint8  `json:"maxLength"`
+	ASN    any    `json:"asn"`
+}
+
+type roas struct {
+	Roas []Jsonroa `json:"roas"`
+}
+
+type rpkiResponse struct {
+	roas
+}
+
+func (r roa) Key() string {
+	return fmt.Sprintf("%s/%d|%d|%d", r.Prefix.Addr().String(), r.Prefix.Bits(), r.MaxMask, r.ASN)
+}
 
 // GetSetOfValidatedROAs returns a slice of ROAs with no duplicates.
 // It only appends if the ROA is valid
@@ -33,120 +64,45 @@ func (roa *roa) isValid() bool {
 	// MaxLength cannot be zero or negative
 	// MaxMask is a uint8 so cannot be negative
 	if roa.MaxMask == 0 {
-		log.Printf("maxmask <= 0: %#v\n", roa)
 		return false
 	}
 
 	// MaxLength cannot be smaller than prefix length
 	if roa.MaxMask < uint8(roa.Prefix.Bits()) {
-		log.Printf("maxmask < mask: %#v\n", roa)
 		return false
 	}
 
 	// MaxLength cannot be larger than the max allowed for that address family
 	if roa.Prefix.Addr().Is4() && roa.MaxMask > 32 {
-		log.Printf("maxmask > max: %#v\n", roa)
 		return false
 	} else if roa.MaxMask > 128 {
-		log.Printf("maxmask > max: %#v\n", roa)
 		return false
 	}
 
 	return true
 }
 
-// updateROAs will update the server struct with the current list of ROAs
-func (s *Server) updateROAs(ch chan bool) {
-	for {
-		time.Sleep(refreshROA)
-		s.mutex.Lock()
-
-		roas, err := readROAs(s.urls)
-		if err != nil {
-			log.Printf("Unable to update ROAs, so keeping existing ROAs for now: %v\n", err)
-			s.updates.lastError = time.Now()
-			s.mutex.Unlock()
-			log.Println("will send true over the channel")
-			ch <- true
-			continue
-		}
-
-		// Calculate diffs
-		s.diffs = makeDiff(roas, s.roas, s.serial)
-		if s.diff.diff {
-			s.updates.lastUpdate = time.Now()
-		}
-
-		// Increment serial and replace
-		s.serial++
-		s.roas = roas
-		log.Printf("roas updated, serial is now %d\n", s.serial)
-
-		s.mutex.Unlock()
-		log.Println("will send true over the channel")
-		ch <- true
-
-		// Notify all clients that the serial number has been updated.
-		for _, c := range s.clients {
-			log.Printf("sending a notify to %s\n", c.addr)
-			c.notify(s.serial, s.session)
-		}
-	}
-}
-
-// makeDiff will return a list of ROAs that need to be deleted or updated
-// in order for a particular serial version to updated to the latest version.
 func makeDiff(new, old []roa, serial uint32) diffs {
-	var addROA, delROA []roa
-
-	// If ROA is in newMap but not oldMap, we need to add it
-	for _, roa := range new {
-		if !slices.Contains(old, roa) {
-			addROA = append(addROA, roa)
-		}
-	}
-
-	// If ROA is in oldMap but not newMap, we need to delete it.
-	for _, roa := range old {
-		if !slices.Contains(new, roa) {
-			delROA = append(delROA, roa)
-		}
-	}
-
-	// There is only a diff is something is added or deleted.
-	diff := len(addROA) > 0 || len(delROA) > 0
-
-	return diffs{
-		old:    serial,
-		new:    serial + 1,
-		addRoa: addROA,
-		delRoa: delROA,
-		diff:   diff,
-	}
-}
-
-// TODO: Benchmark this to see if it is faster than the previous version
-func makeDiff2(new, old []roa, serial uint32) diffs {
-	newMap := make(map[roa]struct{}, len(new))
-	oldMap := make(map[roa]struct{}, len(old))
+	newMap := make(map[string]roa, len(new))
+	oldMap := make(map[string]roa, len(old))
 
 	for _, r := range new {
-		newMap[r] = struct{}{}
+		newMap[r.Key()] = r
 	}
 	for _, r := range old {
-		oldMap[r] = struct{}{}
+		oldMap[r.Key()] = r
 	}
 
 	var addROA, delROA []roa
 
-	for r := range newMap {
-		if _, exists := oldMap[r]; !exists {
+	for k, r := range newMap {
+		if _, exists := oldMap[k]; !exists {
 			addROA = append(addROA, r)
 		}
 	}
 
-	for r := range oldMap {
-		if _, exists := newMap[r]; !exists {
+	for k, r := range oldMap {
+		if _, exists := newMap[k]; !exists {
 			delROA = append(delROA, r)
 		}
 	}
@@ -160,76 +116,55 @@ func makeDiff2(new, old []roa, serial uint32) diffs {
 	}
 }
 
-func readROAs(urls []string) ([]roa, error) {
-	var roas []roa
-	ch := make(chan []roa, len(urls))
-	var wg sync.WaitGroup
-	for _, url := range urls {
-		wg.Add(1)
-		go fetchAndDecodeJSON(url, ch, &wg)
-	}
-	wg.Wait()
-	close(ch)
-	for v := range ch {
-		roas = append(roas, v...)
-	}
-
-	validROAs := GetSetOfValidatedROAs(roas)
-
-	log.Printf("Created a unique set of %d ROAs\n", len(validROAs))
-
-	return validROAs, nil
-}
-
-// fetchAndDecodeJSON will fetch the latest set of ROAs and add to a local struct
-// https://console.rpki-client.org/vrps.json
 // TODO: Any improvements in JSON 1.25 Go?
-func fetchAndDecodeJSON(url string, ch chan []roa, wg *sync.WaitGroup) {
-	defer wg.Done()
-	log.Printf("Downloading from %s\n", url)
-	resp, err := http.Get(url)
+func fetchROAsFromURL(ctx context.Context, url string) ([]roa, error) {
+	// Create HTTP request with context for cancellation/timeouts
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		log.Printf("unable to retrieve ROAs from url: %v", err)
-		return
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Use a client with timeout
+	client := http.Client{
+		Timeout: 1 * time.Minute,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request error: %w", err)
 	}
 	defer resp.Body.Close()
 
-	f, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("unable to read body of response: %v", err)
-		return
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
+	// Decode JSON array
 	var r rpkiResponse
-	if err = json.Unmarshal(f, &r); err != nil {
-		log.Printf("unable to unmarshal: %v", err)
-		return
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("failed to decode json: %w", err)
 	}
 
-	// We know how many ROAs we have, so we can add that capacity directly
-	newROAs := make([]roa, 0, len(r.roas.Roas))
-
-	for _, r := range r.roas.Roas {
+	// Convert JSON ROAs to internal roa type
+	var roas = make([]roa, len(r.Roas))
+	for _, r := range r.Roas {
+		// Parse prefix string to netip.Prefix
 		prefix, err := netip.ParsePrefix(r.Prefix)
 		if err != nil {
-			log.Printf("%v", err)
-			ch <- newROAs
+			return nil, fmt.Errorf("invalid prefix %q: %w", r.Prefix, err)
 		}
-		asn := decodeASN(r)
-		newROAs = append(newROAs, roa{
+		roas = append(roas, roa{
 			Prefix:  prefix,
 			MaxMask: r.Mask,
-			ASN:     asn,
+			ASN:     decodeASN(r),
 		})
 	}
 
-	ch <- newROAs
-
-	log.Printf("Returning %d ROAs from %s\n", len(newROAs), url)
+	return roas, nil
 }
 
 // Some URLs have the AS Number as a number while others as a string.
-func decodeASN(data jsonroa) uint32 {
+func decodeASN(data Jsonroa) uint32 {
 	switch atype := data.ASN.(type) {
 	case string:
 		return asnToUint32(atype)
@@ -244,9 +179,46 @@ func decodeASN(data jsonroa) uint32 {
 func asnToUint32(a string) uint32 {
 	n, err := strconv.Atoi(a[2:])
 	if err != nil {
-		log.Printf("Unable to convert ASN %s to int", a)
 		return 0
 	}
 
 	return uint32(n)
+}
+
+func (s *Server) loadROAs(ctx context.Context) ([]roa, error) {
+	var wg sync.WaitGroup
+	roasCh := make(chan []roa, len(s.urls))
+	errsCh := make(chan error, len(s.urls))
+
+	fetch := func(url string) {
+		defer wg.Done()
+		s.logger.Debugf("Fetching ROAs from %s", url)
+		roas, err := fetchROAsFromURL(ctx, url)
+		if err != nil {
+			errsCh <- err
+			return
+		}
+		roasCh <- roas
+	}
+
+	wg.Add(len(s.urls))
+	for _, url := range s.urls {
+		go fetch(url)
+	}
+	wg.Wait()
+	close(roasCh)
+	close(errsCh)
+
+	if len(errsCh) > 0 {
+		return nil, <-errsCh
+	}
+
+	combined := []roa{}
+	for r := range roasCh {
+		combined = append(combined, r...)
+	}
+
+	validRoas := GetSetOfValidatedROAs(combined)
+
+	return validRoas, nil
 }

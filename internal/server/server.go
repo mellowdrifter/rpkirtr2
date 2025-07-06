@@ -1,9 +1,9 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
-	"net/netip"
 	"sync"
 	"time"
 
@@ -12,30 +12,24 @@ import (
 )
 
 type Server struct {
-	cfg          *config.Config
-	logger       *zap.SugaredLogger
-	listener     net.Listener
-	wg           sync.WaitGroup
-	mu           sync.Mutex
+	// large fields first
+	listener net.Listener
+	logger   *zap.SugaredLogger
+	cfg      *config.Config
+
+	clients map[string]*Client
+	urls    []string
+	roas    []roa
+	diffs   diffs
+
+	// sync types next
+	wg sync.WaitGroup
+	mu *sync.RWMutex
+
+	// smaller fields last
+	serial       uint32
+	session      uint16
 	shuttingDown bool
-	clients      map[string]*Client // map of client ID to client struct
-	mutex        *sync.RWMutex
-	diffs        diffs
-	urls         []string
-}
-
-type roa struct {
-	Prefix  netip.Prefix
-	MaxMask uint8
-	ASN     uint32
-}
-
-type diffs struct {
-	old    uint32
-	new    uint32
-	delRoa []roa
-	addRoa []roa
-	diff   bool
 }
 
 const (
@@ -45,20 +39,40 @@ const (
 // New creates a new Server instance
 func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 	return &Server{
-		cfg:     cfg,
 		logger:  logger,
+		cfg:     cfg,
 		clients: make(map[string]*Client),
+		urls:    cfg.RPKIURLs,
+		roas:    make([]roa, 0, 700000), // initial capacity for performance
+		diffs:   diffs{},
+		wg:      sync.WaitGroup{},
+		mu:      &sync.RWMutex{},
 	}
 }
 
 // Start begins listening and accepting client connections
 func (s *Server) Start() error {
+	ctx := context.Background()
+
+	// Load initial ROAs before listening
+	roas, err := s.loadROAs(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load initial ROAs: %w", err)
+	}
+	s.mu.Lock()
+	s.roas = roas
+	s.mu.Unlock()
+	s.logger.Infof("Loaded %d initial ROAs", len(s.roas))
+
 	l, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen: %w", err)
+		return fmt.Errorf("failed to listen on %s: %w", s.cfg.ListenAddr, err)
 	}
 	s.listener = l
 	s.logger.Infof("Listening on %s", s.cfg.ListenAddr)
+
+	// Start background update ticker
+	go s.periodicROAUpdater(ctx)
 
 	for {
 		conn, err := s.listener.Accept()
@@ -124,5 +138,39 @@ func (s *Server) Stop(timeout time.Duration) error {
 	case <-time.After(timeout):
 		s.logger.Warn("Shutdown timed out; some clients may still be active")
 		return fmt.Errorf("timeout waiting for shutdown")
+	}
+}
+
+func (s *Server) periodicROAUpdater(ctx context.Context) {
+	//ticker := time.NewTicker(refreshROA)
+	ticker := time.NewTicker(1 * time.Minute) // for testing, adjust as needed
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.logger.Info("Checking for ROA updates...")
+			newROAs, err := s.loadROAs(ctx)
+			if err != nil {
+				s.logger.Errorf("failed to update ROAs: %v", err)
+				continue
+			}
+
+			s.mu.Lock()
+			diff := makeDiff(newROAs, s.roas, s.serial)
+			if diff.diff {
+				s.logger.Infof("The following ROAs were added: %v", diff.addRoa)
+				s.logger.Infof("The following ROAs were deleted: %v", diff.delRoa)
+				s.roas = newROAs
+				s.serial++
+				for _, client := range s.clients {
+					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.serial)
+					client.notify(s.serial, s.session)
+				}
+			}
+			s.mu.Unlock()
+		}
 	}
 }

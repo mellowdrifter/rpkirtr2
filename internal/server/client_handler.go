@@ -20,7 +20,6 @@ type Client struct {
 	logger    *zap.SugaredLogger
 	id        string
 	closeOnce sync.Once
-	serial    *uint32
 	mutex     *sync.RWMutex
 	version   protocol.Version
 }
@@ -144,4 +143,19 @@ func (c *Client) Close() {
 
 		// TODO: Cleanup other state if needed
 	})
+}
+
+// notify sends a notification to the client with the new serial number.
+func (c *Client) notify(serial uint32, session uint16) {
+
+	pdu := protocol.NewSerialNotifyPDU(c.version, session, serial)
+	if err := pdu.Write(c.writer); err != nil {
+		c.logger.Errorf("Failed to write Serial Notify PDU: %v", err)
+		return
+	}
+
+	if err := c.writer.Flush(); err != nil {
+		c.logger.Errorf("Failed to flush writer after sending Serial Notify PDU: %v", err)
+	}
+	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", serial, c.id)
 }
