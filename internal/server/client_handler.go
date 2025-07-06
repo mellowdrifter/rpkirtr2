@@ -20,7 +20,9 @@ type Client struct {
 	logger    *zap.SugaredLogger
 	id        string
 	closeOnce sync.Once
-	handler   *protocol.ProtocolHandler
+	serial    *uint32
+	mutex     *sync.RWMutex
+	version   protocol.Version
 }
 
 // NewClient wraps a new connection into a Client instance.
@@ -55,10 +57,18 @@ func (c *Client) Handle() error {
 		c.sendAndCloseError("NEGOTIATION_FAILED")
 		return err
 	}
-	c.handler = protocol.NewProtocolHandler(ver) // Initialize protocol handler
 
-	// Step 2: Send protocol-specific initial response(s)
-	if err := c.handler.SendInitialMessages(c.writer); err != nil {
+	c.version = ver
+	c.logger.Infof("Negotiated version: %d", c.version)
+
+	// Step 2: Client MUST send either a Reset Query or a Serial Query PDU
+	pdu, err := protocol.GetPDU(c.reader)
+	if err != nil {
+		c.logger.Warnf("Failed to read initial PDU: %v", err)
+		c.sendAndCloseError("INITIAL_PDU_READ_FAILED")
+		return err
+	}
+	if err := c.sendInitialResponse(pdu, c.writer); err != nil {
 		c.logger.Warnf("Failed to send initial messages: %v", err)
 		c.sendAndCloseError("INIT_FAILED")
 		return err
@@ -66,7 +76,7 @@ func (c *Client) Handle() error {
 
 	// Step 3: Main read-process loop
 	for {
-		msg, err := c.handler.ReadMessage(c.reader)
+		_, err := protocol.GetPDU(c.reader)
 		if err != nil {
 			if isDisconnectError(err) {
 				c.logger.Info("Client disconnected")
@@ -77,29 +87,43 @@ func (c *Client) Handle() error {
 			return err
 		}
 
-		if err := c.handler.HandleMessage(msg, c.writer); err != nil {
-			c.logger.Warnf("Message handling error: %v", err)
-			c.sendAndCloseError("BAD_REQUEST")
-			return err
-		}
 	}
+}
+
+func (c *Client) sendInitialResponse(pdu protocol.PDU, w *bufio.Writer) error {
+	if c.writer == nil {
+		return errors.New("writer is not initialized")
+	}
+
+	switch pdu.Type() {
+	case protocol.SerialQuery:
+		c.logger.Info("Received Serial Query PDU")
+	case protocol.SerialNotify:
+		c.logger.Info("Received Serial Notify PDU")
+	default:
+		c.logger.Warnf("Unexpected PDU type: %s", pdu.Type())
+		return errors.New("unexpected PDU type")
+	}
+	c.logger.Infof("Going to end the session")
+	c.Close()
+	return nil
 }
 
 // sendAndCloseError sends a protocol error PDU and closes the connection.
 func (c *Client) sendAndCloseError(msg string) {
-	if c.writer == nil {
-		return
+	// TODO: Figure out error code mapping
+	// Also fix the version field
+	pdu := protocol.NewErrorReportPDU(2, 10, nil, []byte(msg))
+	pdu.Write(c.writer)
+	if err := c.writer.Flush(); err != nil {
+		c.logger.Warnf("Failed to send error PDU: %v", err)
 	}
-	pdu := protocol.PDU{
-		Type:    protocol.PDUTypeError,
-		Payload: []byte(msg),
+	c.logger.Warnf("Closing connection due to error: %s", msg)
+	if c.conn != nil {
+		c.logger.Infof("Closing connection to client: %s", c.id)
+
+		_ = c.conn.Close()
 	}
-	data, err := pdu.Marshal()
-	if err == nil {
-		_, _ = c.writer.Write(data)
-		_ = c.writer.Flush()
-	}
-	_ = c.conn.Close()
 }
 
 // isDisconnectError checks whether an error is due to client disconnection.

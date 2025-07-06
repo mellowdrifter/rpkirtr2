@@ -23,7 +23,7 @@ const (
 // Load reads config from flags, env vars, or defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr: ":8080",
+		ListenAddr: ":8282",
 		LogLevel:   "info",
 	}
 

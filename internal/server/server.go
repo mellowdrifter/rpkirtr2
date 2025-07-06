@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -18,7 +19,28 @@ type Server struct {
 	mu           sync.Mutex
 	shuttingDown bool
 	clients      map[string]*Client // map of client ID to client struct
+	mutex        *sync.RWMutex
+	diffs        diffs
+	urls         []string
 }
+
+type roa struct {
+	Prefix  netip.Prefix
+	MaxMask uint8
+	ASN     uint32
+}
+
+type diffs struct {
+	old    uint32
+	new    uint32
+	delRoa []roa
+	addRoa []roa
+	diff   bool
+}
+
+const (
+	refreshROA = 6 * time.Minute
+)
 
 // New creates a new Server instance
 func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
