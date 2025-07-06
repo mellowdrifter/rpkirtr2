@@ -777,6 +777,9 @@ func getPDUBytes(r io.Reader) ([]byte, error) {
 }
 
 func decipherPDU(data []byte) (PDU, error) {
+	if len(data) < 2 {
+		return nil, fmt.Errorf("data too short to contain PDU type: %d bytes", len(data))
+	}
 
 	ptype := PDUType(data[1])
 
@@ -810,10 +813,18 @@ func decipherPDU(data []byte) (PDU, error) {
 			return nil, fmt.Errorf("ErrorReportPDU too short: %d bytes", len(data))
 		}
 		pduLen := binary.BigEndian.Uint32(data[8:12])
-		textLen := binary.BigEndian.Uint32(data[12+pduLen:])
-		if len(data) < int(12+pduLen+textLen) {
-			return nil, fmt.Errorf("ErrorReportPDU too short for pdu and text: %d bytes", len(data))
+
+		// Check pduLen does not cause overflow or slice bounds error
+		if pduLen > uint32(len(data)) || int(12+pduLen+4) > len(data) {
+			return nil, fmt.Errorf("ErrorReportPDU invalid pduLen: %d", pduLen)
 		}
+
+		textLen := binary.BigEndian.Uint32(data[12+pduLen : 12+pduLen+4])
+
+		if textLen > uint32(len(data)) || int(12+pduLen+4+textLen) > len(data) {
+			return nil, fmt.Errorf("ErrorReportPDU invalid textLen: %d", textLen)
+		}
+
 		return &ErrorReportPDU{
 			verion:  Version(data[0]),
 			ptype:   ptype,
@@ -822,7 +833,7 @@ func decipherPDU(data []byte) (PDU, error) {
 			pduLen:  pduLen,
 			pdu:     data[12 : 12+pduLen],
 			textLen: textLen,
-			text:    data[12+pduLen : 12+pduLen+textLen],
+			text:    data[12+pduLen+4 : 12+pduLen+4+textLen],
 		}, nil
 
 		// Cache server should only ever receive the above three PDUs.

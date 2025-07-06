@@ -140,37 +140,3 @@ func (s *Server) Stop(timeout time.Duration) error {
 		return fmt.Errorf("timeout waiting for shutdown")
 	}
 }
-
-func (s *Server) periodicROAUpdater(ctx context.Context) {
-	//ticker := time.NewTicker(refreshROA)
-	ticker := time.NewTicker(1 * time.Minute) // for testing, adjust as needed
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.logger.Info("Checking for ROA updates...")
-			newROAs, err := s.loadROAs(ctx)
-			if err != nil {
-				s.logger.Errorf("failed to update ROAs: %v", err)
-				continue
-			}
-
-			s.mu.Lock()
-			diff := makeDiff(newROAs, s.roas, s.serial)
-			if diff.diff {
-				s.logger.Infof("The following ROAs were added: %v", diff.addRoa)
-				s.logger.Infof("The following ROAs were deleted: %v", diff.delRoa)
-				s.roas = newROAs
-				s.serial++
-				for _, client := range s.clients {
-					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.serial)
-					client.notify(s.serial, s.session)
-				}
-			}
-			s.mu.Unlock()
-		}
-	}
-}
