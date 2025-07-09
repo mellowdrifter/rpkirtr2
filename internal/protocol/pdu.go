@@ -7,8 +7,8 @@ import (
 )
 
 type PDUType uint8
-
 type Version uint8
+type Flags uint8
 
 const (
 	// PDU Types
@@ -29,8 +29,8 @@ const (
 	headPDULength = 2
 
 	// flags
-	withdraw uint8 = 0
-	announce uint8 = 1
+	Withdraw uint8 = 0
+	Announce uint8 = 1
 )
 
 // PDU represents a generic protocol data unit
@@ -373,6 +373,25 @@ func NewIpv6PrefixPDU(ver Version, flags, min, max uint8, prefix [16]byte, asn u
 
 func (i *Ipv6PrefixPDU) Type() PDUType {
 	return i.ptype
+}
+
+func (i *Ipv6PrefixPDU) Write(w io.Writer) error {
+	buf := make([]byte, 32) // fixed-size PDU
+	buf[0] = byte(i.version)
+	buf[1] = byte(i.ptype)
+	binary.BigEndian.PutUint16(buf[2:], i.zero1)
+	binary.BigEndian.PutUint32(buf[4:], 32) // length of the PDU
+	buf[8] = i.flags
+	buf[9] = i.min
+	buf[10] = i.max
+	buf[11] = i.zero2
+	copy(buf[12:28], i.prefix[:])               // 16 bytes for IPv6 prefix
+	binary.BigEndian.PutUint32(buf[28:], i.asn) // 4 bytes for AS Number
+	_, err := w.Write(buf)
+	if err != nil {
+		return fmt.Errorf("failed to write Ipv6PrefixPDU: %w", err)
+	}
+	return nil
 }
 
 type EndOfDataPDU struct {

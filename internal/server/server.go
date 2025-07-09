@@ -96,16 +96,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
-	client := NewClient(conn, s.logger, s.mu) // you'll define this in client_handler.go
-	id := client.ID()
-
 	s.mu.Lock()
+	client := NewClient(conn, s.logger, &s.roas, s.mu, &s.serial)
+	id := client.ID()
 	s.clients[id] = client
 	s.mu.Unlock()
 
 	s.logger.Infof("Client connected: %s", id)
 
-	if err := client.Handle(); err != nil {
+	if err := client.Handle(s.session); err != nil {
 		s.logger.Warnf("Client %s error: %v", id, err)
 	}
 

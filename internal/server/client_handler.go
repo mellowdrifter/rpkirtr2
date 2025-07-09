@@ -13,6 +13,14 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// Intervals are the default intervals in seconds if no specific value is configured
+	DefaultRefreshInterval = uint32(3600) // 1 - 86400
+	DefaultRetryInterval   = uint32(600)  // 1 - 7200
+	DefaultExpireInterval  = uint32(7200) // 600 - 172800
+
+)
+
 type Client struct {
 	conn      net.Conn
 	reader    *bufio.Reader
@@ -22,10 +30,13 @@ type Client struct {
 	closeOnce sync.Once
 	mutex     *sync.RWMutex
 	version   protocol.Version
+	session   uint16
+	serial    *uint32
+	roas      *[]roa
 }
 
 // NewClient wraps a new connection into a Client instance.
-func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, mu *sync.RWMutex) *Client {
+func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, r *[]roa, mu *sync.RWMutex, s *uint32) *Client {
 	remote := conn.RemoteAddr().String()
 	logger := baseLogger.With("client", remote)
 
@@ -36,6 +47,8 @@ func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, mu *sync.RWMutex) *
 		logger: logger,
 		id:     remote,
 		mutex:  mu,
+		roas:   r,
+		serial: s,
 	}
 }
 
@@ -45,7 +58,7 @@ func (c *Client) ID() string {
 }
 
 // Handle manages the full lifecycle of the client connection.
-func (c *Client) Handle() error {
+func (c *Client) Handle(session uint16) error {
 	defer c.Close()
 
 	c.logger.Info("Client session started")
@@ -58,8 +71,10 @@ func (c *Client) Handle() error {
 		return err
 	}
 
-	c.version = ver
 	c.logger.Infof("Negotiated version: %d", c.version)
+	c.version = ver
+	// Copy required fields to the client
+	c.session = session
 
 	// Step 2: Client MUST send either a Reset Query or a Serial Query PDU
 	pdu, err := protocol.GetPDU(c.reader)
@@ -98,15 +113,81 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU, w *bufio.Writer) error {
 	switch pdu.Type() {
 	case protocol.SerialQuery:
 		c.logger.Info("Received Serial Query PDU")
+		c.logger.Infof("Going to end the session")
+		c.Close()
+		return nil
 	case protocol.ResetQuery:
 		c.logger.Info("Received Reset Query PDU")
+		c.sendAllROAS()
 	default:
 		c.logger.Warnf("Unexpected PDU type: %s", pdu.Type())
-		return errors.New("unexpected PDU type")
+		c.logger.Infof("Going to end the session")
+		c.Close()
+		return nil
 	}
-	c.logger.Infof("Going to end the session")
-	c.Close()
 	return nil
+}
+
+func (c *Client) sendAllROAS() {
+	c.logger.Info("Sending all ROAs to client")
+	cpdu := protocol.NewCacheResponsePDU(c.version, c.session)
+	cpdu.Write(c.writer)
+	if err := c.writer.Flush(); err != nil {
+		c.logger.Errorf("Failed to flush writer after sending Cache Response PDU: %v", err)
+		return
+	}
+
+	c.mutex.RLock()
+	for _, roa := range *c.roas {
+		var pdu protocol.PDU
+		if roa.Prefix.Addr().Is4() {
+			pdu = protocol.NewIpv4PrefixPDU(
+				c.version,
+				protocol.Announce,
+				uint8(roa.Prefix.Bits()),
+				roa.MaxMask,
+				roa.Prefix.Addr().As4(),
+				roa.ASN,
+			)
+		} else {
+			pdu = protocol.NewIpv6PrefixPDU(
+				c.version,
+				protocol.Announce,
+				uint8(roa.Prefix.Bits()),
+				roa.MaxMask,
+				roa.Prefix.Addr().As16(),
+				roa.ASN,
+			)
+		}
+		if err := pdu.Write(c.writer); err != nil {
+			c.logger.Errorf("Failed to write IPv4 Prefix PDU: %v", err)
+			c.sendAndCloseError("WRITE_ERROR")
+			return
+		}
+		if err := c.writer.Flush(); err != nil {
+			c.logger.Errorf("Failed to flush writer after sending IPv4 Prefix PDU: %v", err)
+			c.sendAndCloseError("FLUSH_ERROR")
+			return
+		}
+	}
+
+	edpu := protocol.NewEndOfDataPDU(
+		c.version,
+		c.session,
+		*c.serial,
+		// TODO: These should be saved per client. Use defaults only if client does not specify
+		DefaultRefreshInterval,
+		DefaultRetryInterval,
+		DefaultExpireInterval,
+	)
+	c.mutex.RUnlock()
+
+	edpu.Write(c.writer)
+	if err := c.writer.Flush(); err != nil {
+		c.logger.Errorf("Failed to flush writer after sending End of Data PDU: %v", err)
+		return
+	}
+	c.logger.Infof("Sent all ROAs to client %s", c.id)
 }
 
 // sendAndCloseError sends a protocol error PDU and closes the connection.
