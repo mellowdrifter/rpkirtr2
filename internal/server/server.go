@@ -43,10 +43,12 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		cfg:     cfg,
 		clients: make(map[string]*Client),
 		urls:    cfg.RPKIURLs,
-		roas:    make([]roa, 0, 700000), // initial capacity for performance
+		roas:    make([]roa, 0, 750000), // initial capacity for performance
 		diffs:   diffs{},
 		wg:      sync.WaitGroup{},
 		mu:      &sync.RWMutex{},
+		serial:  0,
+		session: uint16(time.Now().Unix() & 0xFFFF),
 	}
 }
 
@@ -69,7 +71,7 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to listen on %s: %w", s.cfg.ListenAddr, err)
 	}
 	s.listener = l
-	s.logger.Infof("Listening on %s", s.cfg.ListenAddr)
+	s.logger.Info("Daemon running")
 
 	// Start background update ticker
 	go s.periodicROAUpdater(ctx)
@@ -94,7 +96,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
-	client := NewClient(conn, s.logger) // you'll define this in client_handler.go
+	client := NewClient(conn, s.logger, s.mu) // you'll define this in client_handler.go
 	id := client.ID()
 
 	s.mu.Lock()

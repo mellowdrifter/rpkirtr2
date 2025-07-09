@@ -25,7 +25,7 @@ type Client struct {
 }
 
 // NewClient wraps a new connection into a Client instance.
-func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger) *Client {
+func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, mu *sync.RWMutex) *Client {
 	remote := conn.RemoteAddr().String()
 	logger := baseLogger.With("client", remote)
 
@@ -35,6 +35,7 @@ func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger) *Client {
 		writer: bufio.NewWriter(conn),
 		logger: logger,
 		id:     remote,
+		mutex:  mu,
 	}
 }
 
@@ -97,8 +98,8 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU, w *bufio.Writer) error {
 	switch pdu.Type() {
 	case protocol.SerialQuery:
 		c.logger.Info("Received Serial Query PDU")
-	case protocol.SerialNotify:
-		c.logger.Info("Received Serial Notify PDU")
+	case protocol.ResetQuery:
+		c.logger.Info("Received Reset Query PDU")
 	default:
 		c.logger.Warnf("Unexpected PDU type: %s", pdu.Type())
 		return errors.New("unexpected PDU type")

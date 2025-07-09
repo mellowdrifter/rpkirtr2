@@ -87,7 +87,7 @@ func TestMakeDiff2(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := makeDiff2(tt.new, tt.old, tt.serial)
+			got := makeDiff(tt.new, tt.old, tt.serial)
 			if !reflect.DeepEqual(got.addRoa, tt.wantAdd) {
 				t.Errorf("addRoa = %v, want %v", got.addRoa, tt.wantAdd)
 			}
