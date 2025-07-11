@@ -3,7 +3,10 @@ package protocol
 import (
 	"bufio"
 	"errors"
+	"slices"
 )
+
+var supportedVersions = []int{1, 2}
 
 // Negotiate reads the client's preferred version
 func Negotiate(r *bufio.Reader) (Version, error) {
@@ -14,5 +17,9 @@ func Negotiate(r *bufio.Reader) (Version, error) {
 	if len(ver) == 0 {
 		return 0, errors.New("no version byte received")
 	}
-	return Version(ver[0]), nil
+	version := int(ver[0])
+	if !slices.Contains(supportedVersions, version) {
+		return 0, errors.New("unsupported version: " + string(ver[0]))
+	}
+	return Version(version), nil
 }

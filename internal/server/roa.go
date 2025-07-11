@@ -18,11 +18,13 @@ type roa struct {
 }
 
 type diffs struct {
+	// old and new are the serial numbers of the ROAs
 	old    uint32
 	new    uint32
 	delRoa []roa
 	addRoa []roa
-	diff   bool
+	// diff indicates if there are any changes between the two serial numbers
+	diff bool
 }
 
 type Jsonroa struct {

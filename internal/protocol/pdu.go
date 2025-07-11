@@ -77,6 +77,10 @@ func (s *SerialNotifyPDU) Type() PDUType {
 	return s.ptype
 }
 
+func (s *SerialNotifyPDU) Serial() uint32 {
+	return s.serial
+}
+
 func (s *SerialNotifyPDU) Write(w io.Writer) error {
 	buf := make([]byte, 12) // fixed-size PDU
 
@@ -129,6 +133,10 @@ func NewSerialQueryPDU(ver Version, session uint16, serial uint32) *SerialQueryP
 
 func (s *SerialQueryPDU) Type() PDUType {
 	return s.ptype
+}
+
+func (s *SerialQueryPDU) Serial() uint32 {
+	return s.serial
 }
 
 func (s *SerialQueryPDU) Write(w io.Writer) error {
@@ -770,9 +778,7 @@ func getPDUBytes(r io.Reader) ([]byte, error) {
 	// Read the first 8 bytes to get the PDU header
 	buf := make([]byte, minPDULength)
 	if _, err := io.ReadFull(r, buf); err != nil {
-		if _, err := io.ReadFull(r, buf); err != nil {
-			return nil, fmt.Errorf("failed to read PDU header: %w", err)
-		}
+		return nil, fmt.Errorf("failed to read PDU header: %w", err)
 	}
 
 	// Check the full length of the PDU

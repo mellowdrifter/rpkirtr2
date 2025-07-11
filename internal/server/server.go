@@ -97,7 +97,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	s.mu.Lock()
-	client := NewClient(conn, s.logger, &s.roas, s.mu, &s.serial)
+	client := NewClient(conn, s.logger, &s.roas, s.mu, &s.serial, &s.diffs)
 	id := client.ID()
 	s.clients[id] = client
 	s.mu.Unlock()
