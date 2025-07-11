@@ -1,36 +1,7 @@
 package protocol
 
 import (
-	"encoding/binary"
-	"fmt"
 	"io"
-)
-
-type PDUType uint8
-type Version uint8
-type Flags uint8
-
-const (
-	// PDU Types
-	SerialNotify  PDUType = 0
-	SerialQuery   PDUType = 1
-	ResetQuery    PDUType = 2
-	CacheResponse PDUType = 3
-	Ipv4Prefix    PDUType = 4
-	Ipv6Prefix    PDUType = 6
-	EndOfData     PDUType = 7
-	CacheReset    PDUType = 8
-	RouterKey     PDUType = 9
-	ErrorReport   PDUType = 10
-	Aspa          PDUType = 11
-
-	minPDULength  = 8
-	maxPDULength  = 65535
-	headPDULength = 2
-
-	// flags
-	Withdraw uint8 = 0
-	Announce uint8 = 1
 )
 
 // PDU represents a generic protocol data unit
@@ -68,7 +39,7 @@ func NewSerialNotifyPDU(ver Version, session uint16, serial uint32) *SerialNotif
 		version: ver,
 		ptype:   SerialNotify,
 		session: session,
-		length:  12,
+		length:  serialNotifyLength,
 		serial:  serial,
 	}
 }
@@ -79,22 +50,6 @@ func (s *SerialNotifyPDU) Type() PDUType {
 
 func (s *SerialNotifyPDU) Serial() uint32 {
 	return s.serial
-}
-
-func (s *SerialNotifyPDU) Write(w io.Writer) error {
-	buf := make([]byte, 12) // fixed-size PDU
-
-	buf[0] = byte(s.version)
-	buf[1] = byte(s.ptype)
-	binary.BigEndian.PutUint16(buf[2:], s.session)
-	binary.BigEndian.PutUint32(buf[4:], s.length)
-	binary.BigEndian.PutUint32(buf[8:], s.serial)
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write SerialNotifyPDU: %w", err)
-	}
-	return nil
 }
 
 type SerialQueryPDU struct {
@@ -126,7 +81,7 @@ func NewSerialQueryPDU(ver Version, session uint16, serial uint32) *SerialQueryP
 		version: ver,
 		ptype:   SerialQuery,
 		session: session,
-		length:  12,
+		length:  serialQueryLength,
 		serial:  serial,
 	}
 }
@@ -137,21 +92,6 @@ func (s *SerialQueryPDU) Type() PDUType {
 
 func (s *SerialQueryPDU) Serial() uint32 {
 	return s.serial
-}
-
-func (s *SerialQueryPDU) Write(w io.Writer) error {
-	buf := make([]byte, 12) // fixed-size PDU
-
-	buf[0] = byte(s.version)
-	buf[1] = byte(s.ptype)
-	binary.BigEndian.PutUint16(buf[2:], s.session)
-	binary.BigEndian.PutUint32(buf[4:], s.length)
-	binary.BigEndian.PutUint32(buf[8:], s.serial)
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write SerialQueryPDU: %w", err)
-	}
-	return nil
 }
 
 type ResetQueryPDU struct {
@@ -178,27 +118,12 @@ func NewResetQueryPDU(ver Version) *ResetQueryPDU {
 		version: ver,
 		ptype:   ResetQuery,
 		zero:    0,
-		length:  8,
+		length:  resetQueryLength,
 	}
 }
 
 func (r *ResetQueryPDU) Type() PDUType {
 	return r.ptype
-}
-
-func (r *ResetQueryPDU) Write(w io.Writer) error {
-	buf := make([]byte, 8) // fixed-size PDU
-
-	buf[0] = byte(r.version)
-	buf[1] = byte(r.ptype)
-	buf[2] = r.zero
-	binary.BigEndian.PutUint32(buf[4:], r.length)
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write ResetQueryPDU: %w", err)
-	}
-	return nil
 }
 
 type CacheResponsePDU struct {
@@ -229,23 +154,8 @@ func NewCacheResponsePDU(ver Version, session uint16) *CacheResponsePDU {
 		version: ver,
 		ptype:   CacheResponse,
 		session: session,
-		length:  8, // fixed size for this PDU
+		length:  cacheResponseLength,
 	}
-}
-
-func (c *CacheResponsePDU) Write(w io.Writer) error {
-	buf := make([]byte, 8) // fixed-size PDU
-
-	buf[0] = byte(c.version)
-	buf[1] = byte(c.ptype)
-	binary.BigEndian.PutUint16(buf[2:], c.session)
-	binary.BigEndian.PutUint32(buf[4:], c.length)
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write CacheResponsePDU: %w", err)
-	}
-	return nil
 }
 
 type Ipv4PrefixPDU struct {
@@ -290,7 +200,7 @@ func NewIpv4PrefixPDU(ver Version, flags, min, max uint8, prefix [4]byte, asn ui
 		version: ver,
 		ptype:   Ipv4Prefix,
 		zero1:   0,
-		length:  20,
+		length:  ipv4Length,
 		flags:   flags,
 		min:     min,
 		max:     max,
@@ -302,27 +212,6 @@ func NewIpv4PrefixPDU(ver Version, flags, min, max uint8, prefix [4]byte, asn ui
 
 func (i *Ipv4PrefixPDU) Type() PDUType {
 	return i.ptype
-}
-
-func (i *Ipv4PrefixPDU) Write(w io.Writer) error {
-	buf := make([]byte, 20) // fixed-size PDU
-
-	buf[0] = byte(i.version)
-	buf[1] = byte(i.ptype)
-	binary.BigEndian.PutUint16(buf[2:], i.zero1)
-	binary.BigEndian.PutUint32(buf[4:], i.length)
-	buf[8] = i.flags
-	buf[9] = i.min
-	buf[10] = i.max
-	buf[11] = i.zero2
-	copy(buf[12:16], i.prefix[:])
-	binary.BigEndian.PutUint32(buf[16:], i.asn)
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write Ipv4PrefixPDU: %w", err)
-	}
-	return nil
 }
 
 type Ipv6PrefixPDU struct {
@@ -357,6 +246,7 @@ type Ipv6PrefixPDU struct {
 	version Version
 	ptype   PDUType
 	zero1   uint16
+	length  uint32
 	flags   uint8
 	min     uint8
 	max     uint8
@@ -370,6 +260,7 @@ func NewIpv6PrefixPDU(ver Version, flags, min, max uint8, prefix [16]byte, asn u
 		version: ver,
 		ptype:   Ipv6Prefix,
 		zero1:   0,
+		length:  ipv6Length,
 		flags:   flags,
 		min:     min,
 		max:     max,
@@ -381,25 +272,6 @@ func NewIpv6PrefixPDU(ver Version, flags, min, max uint8, prefix [16]byte, asn u
 
 func (i *Ipv6PrefixPDU) Type() PDUType {
 	return i.ptype
-}
-
-func (i *Ipv6PrefixPDU) Write(w io.Writer) error {
-	buf := make([]byte, 32) // fixed-size PDU
-	buf[0] = byte(i.version)
-	buf[1] = byte(i.ptype)
-	binary.BigEndian.PutUint16(buf[2:], i.zero1)
-	binary.BigEndian.PutUint32(buf[4:], 32) // length of the PDU
-	buf[8] = i.flags
-	buf[9] = i.min
-	buf[10] = i.max
-	buf[11] = i.zero2
-	copy(buf[12:28], i.prefix[:])               // 16 bytes for IPv6 prefix
-	binary.BigEndian.PutUint32(buf[28:], i.asn) // 4 bytes for AS Number
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write Ipv6PrefixPDU: %w", err)
-	}
-	return nil
 }
 
 type EndOfDataPDU struct {
@@ -446,7 +318,7 @@ func NewEndOfDataPDU(ver Version, session uint16, serial, refresh, retry, expire
 		version: ver,
 		ptype:   EndOfData,
 		session: session,
-		length:  24,
+		length:  EndOfDataLength,
 		serial:  serial,
 		refresh: refresh,
 		retry:   retry,
@@ -456,25 +328,6 @@ func NewEndOfDataPDU(ver Version, session uint16, serial, refresh, retry, expire
 
 func (e *EndOfDataPDU) Type() PDUType {
 	return e.ptype
-}
-
-func (e *EndOfDataPDU) Write(w io.Writer) error {
-	buf := make([]byte, 24) // fixed-size PDU
-
-	buf[0] = byte(e.version)
-	buf[1] = byte(e.ptype)
-	binary.BigEndian.PutUint16(buf[2:], e.session)
-	binary.BigEndian.PutUint32(buf[4:], e.length)
-	binary.BigEndian.PutUint32(buf[8:], e.serial)
-	binary.BigEndian.PutUint32(buf[12:], e.refresh)
-	binary.BigEndian.PutUint32(buf[16:], e.retry)
-	binary.BigEndian.PutUint32(buf[20:], e.expire)
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write EndOfDataPDU: %w", err)
-	}
-	return nil
 }
 
 type cacheResetPDU struct {
@@ -502,27 +355,12 @@ func NewCacheResetPDU(ver Version) *cacheResetPDU {
 		version: ver,
 		ptype:   CacheReset,
 		zero:    0,
-		length:  8,
+		length:  cacheResetLength,
 	}
 }
 
 func (c *cacheResetPDU) Type() PDUType {
 	return c.ptype
-}
-
-func (c *cacheResetPDU) Write(w io.Writer) error {
-	buf := make([]byte, 8) // fixed-size PDU
-
-	buf[0] = byte(c.version)
-	buf[1] = byte(c.ptype)
-	binary.BigEndian.PutUint16(buf[2:], c.zero)
-	binary.BigEndian.PutUint32(buf[4:], c.length)
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write cacheResetPDU: %w", err)
-	}
-	return nil
 }
 
 type RouterKeyPDU struct {
@@ -580,26 +418,6 @@ func NewRouterKeyPDU(ver Version, session uint16, ski [20]byte, asn uint32, skiI
 
 func (r *RouterKeyPDU) Type() PDUType {
 	return r.ptype
-}
-
-func (r *RouterKeyPDU) Write(w io.Writer) error {
-	buf := make([]byte, 24+len(r.skiInfo)) // fixed-size PDU
-
-	buf[0] = byte(r.version)
-	buf[1] = byte(r.ptype)
-	binary.BigEndian.PutUint16(buf[2:], r.session)
-	binary.BigEndian.PutUint32(buf[4:], r.length)
-	copy(buf[8:28], r.ski[:])                   // 20 bytes for SKI
-	binary.BigEndian.PutUint32(buf[28:], r.asn) // 4 bytes for AS Number
-	if len(r.skiInfo) > 0 {
-		copy(buf[32:], r.skiInfo) // variable length for Subject Public Key Info
-	}
-	_, err := w.Write(buf)
-
-	if err != nil {
-		return fmt.Errorf("failed to write RouterKeyPDU: %w", err)
-	}
-	return nil
 }
 
 type ErrorReportPDU struct {
@@ -660,29 +478,6 @@ func (e *ErrorReportPDU) Type() PDUType {
 	return e.ptype
 }
 
-func (e *ErrorReportPDU) Write(w io.Writer) error {
-	buf := make([]byte, 12+len(e.pdu)+len(e.text)) // fixed-size PDU
-
-	buf[0] = byte(e.verion)
-	buf[1] = byte(e.ptype)
-	binary.BigEndian.PutUint16(buf[2:], e.code)
-	binary.BigEndian.PutUint32(buf[4:], e.length)
-	binary.BigEndian.PutUint32(buf[8:], e.pduLen)
-	if len(e.pdu) > 0 {
-		copy(buf[12:12+len(e.pdu)], e.pdu) // copy erroneous PDU
-	}
-	if len(e.text) > 0 {
-		binary.BigEndian.PutUint32(buf[12+len(e.pdu):], e.textLen) // length of error text
-		copy(buf[16+len(e.pdu):16+len(e.pdu)+len(e.text)], e.text) // copy error text
-	}
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write ErrorReportPDU: %w", err)
-	}
-	return nil
-}
-
 type AspaPDU struct {
 	/*
 	   0          8          16         24        31
@@ -713,7 +508,7 @@ type AspaPDU struct {
 	pasn    []uint32 // Provider Autonomous System Numbers, variable length
 }
 
-func NewASPA(ver Version, flags uint8, casn uint32, pasn []uint32) *AspaPDU {
+func NewAspaPDU(ver Version, flags uint8, casn uint32, pasn []uint32) *AspaPDU {
 	return &AspaPDU{
 		version: ver,
 		ptype:   Aspa,
@@ -727,144 +522,4 @@ func NewASPA(ver Version, flags uint8, casn uint32, pasn []uint32) *AspaPDU {
 
 func (a *AspaPDU) Type() PDUType {
 	return a.ptype
-}
-
-func (a *AspaPDU) Write(w io.Writer) error {
-	buf := make([]byte, 12+len(a.pasn)*4) // fixed-size PDU
-
-	buf[0] = byte(a.version)
-	buf[1] = byte(a.ptype)
-	buf[2] = a.flags
-	buf[3] = a.zero
-	binary.BigEndian.PutUint32(buf[4:], a.length)
-	binary.BigEndian.PutUint32(buf[8:], a.casn)
-	for i, pasn := range a.pasn {
-		binary.BigEndian.PutUint32(buf[12+i*4:], pasn) // 4 bytes for each Provider AS Number
-	}
-
-	_, err := w.Write(buf)
-	if err != nil {
-		return fmt.Errorf("failed to write AspaPDU: %w", err)
-	}
-	return nil
-}
-
-// GetPDU reads from the provided io.Reader and returns a PDU.
-func GetPDU(r io.Reader) (PDU, error) {
-	bytes, err := getPDUBytes(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get PDU bytes: %w", err)
-	}
-	pdu, err := decipherPDU(bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal PDU: %w", err)
-	}
-	return pdu, nil
-}
-
-// getPDUBytes will return a byte slice which contains a PDU.
-func getPDUBytes(r io.Reader) ([]byte, error) {
-	/*
-		0          8          16         24        31
-		.-------------------------------------------.
-		| Protocol |   PDU    |                     |
-		| Version  |   Type   |     Session ID      |
-		+-------------------------------------------+
-		|                                           |
-		|                 Length                    |
-		|                                           |
-		`-------------------------------------------'
-	*/
-	// Read the first 8 bytes to get the PDU header
-	buf := make([]byte, minPDULength)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return nil, fmt.Errorf("failed to read PDU header: %w", err)
-	}
-
-	// Check the full length of the PDU
-	length := binary.BigEndian.Uint32(buf[4:8])
-	if length < minPDULength || length > maxPDULength {
-		return nil, fmt.Errorf("invalid PDU length: %d", length)
-	}
-
-	// If there is payload, read it
-	payloadLen := int(length) - minPDULength
-	if payloadLen > 0 {
-		data := make([]byte, payloadLen)
-		if _, err := io.ReadFull(r, data); err != nil {
-			return nil, fmt.Errorf("failed to read PDU payload: %w", err)
-		}
-		buf = append(buf, data...)
-	}
-
-	return buf, nil
-
-}
-
-func decipherPDU(data []byte) (PDU, error) {
-	if len(data) < 2 {
-		return nil, fmt.Errorf("data too short to contain PDU type: %d bytes", len(data))
-	}
-
-	ptype := PDUType(data[1])
-
-	switch ptype {
-
-	// SerialQuery asks for diffs of ROAs from last serial number.
-	case SerialQuery:
-		if len(data) < 12 {
-			return nil, fmt.Errorf("SerialQueryPDU too short: %d bytes", len(data))
-		}
-		return &SerialQueryPDU{
-			version: Version(data[0]),
-			ptype:   ptype,
-			session: binary.BigEndian.Uint16(data[2:4]),
-			length:  binary.BigEndian.Uint32(data[4:8]),
-			serial:  binary.BigEndian.Uint32(data[8:12]),
-		}, nil
-
-	// ResetQuery asks for all ROAs.
-	case ResetQuery:
-		if len(data) < 8 {
-			return nil, fmt.Errorf("ResetQueryPDU too short: %d bytes", len(data))
-		}
-		return &ResetQueryPDU{
-			version: Version(data[0]),
-			ptype:   ptype,
-			zero:    data[2],
-			length:  binary.BigEndian.Uint32(data[4:8]),
-		}, nil
-
-	case ErrorReport:
-		if len(data) < 12 {
-			return nil, fmt.Errorf("ErrorReportPDU too short: %d bytes", len(data))
-		}
-		pduLen := binary.BigEndian.Uint32(data[8:12])
-
-		// Check pduLen does not cause overflow or slice bounds error
-		if pduLen > uint32(len(data)) || int(12+pduLen+4) > len(data) {
-			return nil, fmt.Errorf("ErrorReportPDU invalid pduLen: %d", pduLen)
-		}
-
-		textLen := binary.BigEndian.Uint32(data[12+pduLen : 12+pduLen+4])
-
-		if textLen > uint32(len(data)) || int(12+pduLen+4+textLen) > len(data) {
-			return nil, fmt.Errorf("ErrorReportPDU invalid textLen: %d", textLen)
-		}
-
-		return &ErrorReportPDU{
-			verion:  Version(data[0]),
-			ptype:   ptype,
-			code:    binary.BigEndian.Uint16(data[2:4]),
-			length:  binary.BigEndian.Uint32(data[4:8]),
-			pduLen:  pduLen,
-			pdu:     data[12 : 12+pduLen],
-			textLen: textLen,
-			text:    data[12+pduLen+4 : 12+pduLen+4+textLen],
-		}, nil
-
-		// Cache server should only ever receive the above three PDUs.
-	default:
-		return nil, fmt.Errorf("unsupported PDU type: %d", ptype)
-	}
 }
