@@ -1,6 +1,11 @@
 package protocol
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func FuzzDecipherPDU(f *testing.F) {
 	// Add a few valid seed inputs (optional but helps fuzzing)
@@ -29,4 +34,15 @@ func FuzzDecipherPDU(f *testing.F) {
 
 		_, _ = decipherPDU(data)
 	})
+}
+
+func TestSerialQueryRoundTrip(t *testing.T) {
+	orig := NewSerialQueryPDU(1, 100, 12345)
+
+	var buf bytes.Buffer
+	require.NoError(t, orig.Write(&buf))
+
+	got, err := GetPDU(&buf)
+	require.NoError(t, err)
+	require.Equal(t, orig, got)
 }

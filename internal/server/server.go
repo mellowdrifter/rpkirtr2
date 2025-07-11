@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -47,7 +48,7 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		diffs:   diffs{},
 		wg:      sync.WaitGroup{},
 		mu:      &sync.RWMutex{},
-		serial:  0,
+		serial:  randomUint32WithinUint16(),
 		session: uint16(time.Now().Unix() & 0xFFFF),
 	}
 }
@@ -140,4 +141,9 @@ func (s *Server) Stop(timeout time.Duration) error {
 		s.logger.Warn("Shutdown timed out; some clients may still be active")
 		return fmt.Errorf("timeout waiting for shutdown")
 	}
+}
+
+func randomUint32WithinUint16() uint32 {
+	// Generate a random number within uint16 range and convert to uint32
+	return uint32(rand.Uint32() % 65536)
 }

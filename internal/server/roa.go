@@ -250,7 +250,7 @@ func (s *Server) periodicROAUpdater(ctx context.Context) {
 				s.serial++
 				for _, client := range s.clients {
 					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.serial)
-					client.notify(s.serial, s.session)
+					client.notify()
 				}
 			}
 			s.mu.Unlock()

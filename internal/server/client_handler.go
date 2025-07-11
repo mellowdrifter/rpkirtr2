@@ -298,6 +298,9 @@ func (c *Client) sendCacheResponse() {
 func (c *Client) sendAllROAS() {
 	c.logger.Info("Sending all ROAs to client")
 
+	// Buffer writer so we send multiple PDUs per TCP packet
+	buf := bufio.NewWriter(c.conn)
+
 	c.mutex.RLock()
 	for _, roa := range *c.roas {
 		var pdu protocol.PDU
@@ -320,13 +323,13 @@ func (c *Client) sendAllROAS() {
 				roa.ASN,
 			)
 		}
-		if err := pdu.Write(c.writer); err != nil {
-			c.logger.Errorf("Failed to write IPv4 Prefix PDU: %v", err)
+		if err := pdu.Write(buf); err != nil {
+			c.logger.Errorf("Failed to write prefix PDUs: %v", err)
 			c.sendAndCloseError("WRITE_ERROR")
 			return
 		}
-		if err := c.writer.Flush(); err != nil {
-			c.logger.Errorf("Failed to flush writer after sending IPv4 Prefix PDU: %v", err)
+		if err := buf.Flush(); err != nil {
+			c.logger.Errorf("Failed to flush writer: %v", err)
 			c.sendAndCloseError("FLUSH_ERROR")
 			return
 		}
@@ -375,9 +378,9 @@ func (c *Client) Close() {
 }
 
 // notify sends a notification to the client with the new serial number.
-func (c *Client) notify(serial uint32, session uint16) {
+func (c *Client) notify() {
 
-	pdu := protocol.NewSerialNotifyPDU(c.version, session, serial)
+	pdu := protocol.NewSerialNotifyPDU(c.version, c.session, *c.serial)
 	if err := pdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Serial Notify PDU: %v", err)
 		return
@@ -386,5 +389,5 @@ func (c *Client) notify(serial uint32, session uint16) {
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Serial Notify PDU: %v", err)
 	}
-	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", serial, c.id)
+	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", c.serial, c.id)
 }
