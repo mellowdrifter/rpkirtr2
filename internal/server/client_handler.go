@@ -28,16 +28,19 @@ type Client struct {
 	logger    *zap.SugaredLogger
 	id        string
 	closeOnce sync.Once
-	mutex     *sync.RWMutex
 	version   protocol.Version
-	session   uint16
-	serial    *uint32
-	roas      *[]roa
-	diffs     *diffs
+	cache     *cache
+	cfg       cfg
+}
+
+type cfg struct {
+	refreshInterval uint32
+	retryInterval   uint32
+	expireInterval  uint32
 }
 
 // NewClient wraps a new connection into a Client instance.
-func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, r *[]roa, mu *sync.RWMutex, s *uint32, d *diffs) *Client {
+func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, c *cache) *Client {
 	remote := conn.RemoteAddr().String()
 	logger := baseLogger.With("client", remote)
 
@@ -47,10 +50,8 @@ func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, r *[]roa, mu *sync.
 		writer: bufio.NewWriter(conn),
 		logger: logger,
 		id:     remote,
-		mutex:  mu,
-		roas:   r,
-		diffs:  d,
-		serial: s,
+		cache:  c,
+		cfg:    *newCfg(),
 	}
 }
 
@@ -59,8 +60,16 @@ func (c *Client) ID() string {
 	return c.id
 }
 
+func newCfg() *cfg {
+	return &cfg{
+		refreshInterval: DefaultRefreshInterval,
+		retryInterval:   DefaultRetryInterval,
+		expireInterval:  DefaultExpireInterval,
+	}
+}
+
 // Handle manages the full lifecycle of the client connection.
-func (c *Client) Handle(session uint16) error {
+func (c *Client) Handle() error {
 	defer c.Close()
 
 	c.logger.Info("Client session started")
@@ -73,10 +82,8 @@ func (c *Client) Handle(session uint16) error {
 		return err
 	}
 
-	c.logger.Infof("Negotiated version: %d", c.version)
+	c.logger.Infof("Negotiated version: %d", ver)
 	c.version = ver
-	// Copy required fields to the client
-	c.session = session
 
 	// Step 2: Client MUST send either a Reset Query or a Serial Query PDU
 	pdu, err := protocol.GetPDU(c.reader)
@@ -103,13 +110,42 @@ func (c *Client) Handle(session uint16) error {
 			c.sendAndCloseError("READ_ERROR")
 			return err
 		}
-
+		switch pdu.Type() {
+		case protocol.ResetQuery:
+			c.logger.Info("Received Reset Query PDU")
+			c.sendCacheResponse()
+			c.sendAllROAS()
+		case protocol.SerialQuery:
+			c.logger.Info("Received Serial Query PDU")
+			sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
+			if !ok {
+				c.logger.Warnf("Failed to cast PDU to *SerialQueryPDU")
+				c.sendAndCloseError("SERIAL_QUERY_CAST_ERROR")
+				return errors.New("failed to cast PDU to *SerialQueryPDU")
+			}
+			if err := c.handleSerialQuery(sqPDU); err != nil {
+				c.logger.Warnf("Failed to handle Serial Query PDU: %v", err)
+				c.sendAndCloseError("SERIAL_QUERY_ERROR")
+				return err
+			}
+			// TODO: Handle errors and whatever other PDUs the client might send
+		default:
+			c.logger.Warnf("Unexpected PDU type: %s", pdu.Type())
+			c.logger.Infof("Going to end the session")
+			c.Close()
+			return nil
+		}
 	}
 }
 
+// TODO: A lot of overlap with the main loop here...
 func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 
 	switch pdu.Type() {
+	case protocol.ResetQuery:
+		c.logger.Info("Received Reset Query PDU")
+		c.sendCacheResponse()
+		c.sendAllROAS()
 	case protocol.SerialQuery:
 		c.logger.Info("Received Serial Query PDU")
 		sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
@@ -123,10 +159,6 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 			c.sendAndCloseError("SERIAL_QUERY_ERROR")
 			return err
 		}
-	case protocol.ResetQuery:
-		c.logger.Info("Received Reset Query PDU")
-		c.sendCacheResponse()
-		c.sendAllROAS()
 	default:
 		c.logger.Warnf("Unexpected PDU type: %s", pdu.Type())
 		c.logger.Infof("Going to end the session")
@@ -138,28 +170,38 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 
 func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	c.logger.Info("Handling Serial Query PDU")
-	defer c.mutex.RUnlock()
-	c.mutex.RLock()
-	// Cache can only deal with the current or previous serial number
-	if pdu.Serial() != *c.serial && pdu.Serial() != *c.serial-1 {
-		c.logger.Infof("Client requested serial %d, current serial is %d", pdu.Serial(), *c.serial)
-		// Send a reset to the client, and it'll then request the entire cache
-		c.sendReset()
+
+	// If the client sends nil, it's new and therefore just send a reset so it'll ask for everything
+	if pdu.Serial() == 0 {
+		c.logger.Infof("Client requested serial 0, so sending cache reset PDU")
+		c.sendCacheReset()
 		return nil
 	}
-	// If the serials match, send a Cache Response PDU and and End of Data PDU
-	if pdu.Serial() == *c.serial {
+
+	serial := c.cache.getSerial()
+
+	// Cache can only deal with the current or previous serial number
+	if pdu.Serial() != serial && pdu.Serial() != serial-1 {
+		c.logger.Infof("Client requested serial %d, current serial is %d", pdu.Serial(), serial)
+		// Send a reset to the client, and it'll then request the entire cache
+		c.sendCacheReset()
+		return nil
+	}
+
+	// If the serials match, send a Cache Response PDU
+	if pdu.Serial() == serial {
 		c.logger.Infof("Client requested current serial %d", pdu.Serial())
 		c.sendCacheResponse()
 	}
 
 	// If the serial is one less than the current, and there are diffs, send the diffs
-	if pdu.Serial() == *c.serial-1 && c.diffs.diff {
+	if pdu.Serial() == serial-1 && c.cache.isDiffs() {
+		c.sendCacheResponse()
 		c.sendDiffs()
 	}
 
 	// Notify the client of the current serial number
-	c.sendEndOfDataPDU()
+	c.sendEndOfDataPDU(c.cache.session, serial)
 
 	return nil
 
@@ -169,7 +211,8 @@ func (c *Client) sendDiffs() {
 	c.logger.Info("Sending diffs to client")
 
 	// Send all ROAs that were added
-	for _, roa := range c.diffs.addRoa {
+	add, del := c.cache.getDiffs()
+	for _, roa := range add {
 		var pdu protocol.PDU
 		if roa.Prefix.Addr().Is4() {
 			pdu = protocol.NewIpv4PrefixPDU(
@@ -195,14 +238,14 @@ func (c *Client) sendDiffs() {
 			c.sendAndCloseError("WRITE_ERROR")
 			return
 		}
-		if err := c.writer.Flush(); err != nil {
-			c.logger.Errorf("Failed to flush writer after sending PDU for added ROA: %v", err)
-			c.sendAndCloseError("FLUSH_ERROR")
-			return
-		}
+	}
+	if err := c.writer.Flush(); err != nil {
+		c.logger.Errorf("Failed to flush writer after sending PDU for added ROA: %v", err)
+		c.sendAndCloseError("FLUSH_ERROR")
+		return
 	}
 
-	for _, roa := range c.diffs.delRoa {
+	for _, roa := range del {
 		var pdu protocol.PDU
 		if roa.Prefix.Addr().Is4() {
 			pdu = protocol.NewIpv4PrefixPDU(
@@ -228,37 +271,37 @@ func (c *Client) sendDiffs() {
 			c.sendAndCloseError("WRITE_ERROR")
 			return
 		}
-		if err := c.writer.Flush(); err != nil {
-			c.logger.Errorf("Failed to flush writer after sending PDU for deleted ROA: %v", err)
-			c.sendAndCloseError("FLUSH_ERROR")
-			return
-		}
+	}
+	if err := c.writer.Flush(); err != nil {
+		c.logger.Errorf("Failed to flush writer after sending PDU for deleted ROA: %v", err)
+		c.sendAndCloseError("FLUSH_ERROR")
+		return
 	}
 }
 
-func (c *Client) sendReset() {
-	c.logger.Info("Sending Reset PDU to client")
+func (c *Client) sendCacheReset() {
+	c.logger.Info("Sending Cache Reset PDU to client")
 	rpdu := protocol.NewResetQueryPDU(c.version)
 	if err := rpdu.Write(c.writer); err != nil {
-		c.logger.Errorf("Failed to write Reset PDU: %v", err)
+		c.logger.Errorf("Failed to write Cache Reset PDU: %v", err)
 		c.sendAndCloseError("WRITE_ERROR")
 		return
 	}
 	if err := c.writer.Flush(); err != nil {
-		c.logger.Errorf("Failed to flush writer after sending Reset PDU: %v", err)
+		c.logger.Errorf("Failed to flush writer after sending Cache Reset PDU: %v", err)
 		c.sendAndCloseError("FLUSH_ERROR")
 		return
 	}
-	c.logger.Info("Reset PDU sent successfully")
+	c.logger.Info("Cache Reset PDU sent successfully")
 }
 
-func (c *Client) sendEndOfDataPDU() {
+func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 	c.logger.Info("Sending End of Data PDU to client")
 	// TODO: Use the actual values from the client if they are set
 	edpu := protocol.NewEndOfDataPDU(
 		c.version,
-		c.session,
-		*c.serial,
+		session,
+		serial,
 		DefaultRefreshInterval,
 		DefaultRetryInterval,
 		DefaultExpireInterval,
@@ -280,7 +323,7 @@ func (c *Client) sendEndOfDataPDU() {
 
 func (c *Client) sendCacheResponse() {
 	c.logger.Info("Sending Cache Response PDU to client")
-	cpdu := protocol.NewCacheResponsePDU(c.version, c.session)
+	cpdu := protocol.NewCacheResponsePDU(c.version, c.cache.getSession())
 	if err := cpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Response PDU: %v", err)
 		c.sendAndCloseError("WRITE_ERROR")
@@ -301,8 +344,8 @@ func (c *Client) sendAllROAS() {
 	// Buffer writer so we send multiple PDUs per TCP packet
 	buf := bufio.NewWriter(c.conn)
 
-	c.mutex.RLock()
-	for _, roa := range *c.roas {
+	roas := c.cache.getRoas()
+	for _, roa := range roas {
 		var pdu protocol.PDU
 		if roa.Prefix.Addr().Is4() {
 			pdu = protocol.NewIpv4PrefixPDU(
@@ -328,16 +371,16 @@ func (c *Client) sendAllROAS() {
 			c.sendAndCloseError("WRITE_ERROR")
 			return
 		}
-		if err := buf.Flush(); err != nil {
-			c.logger.Errorf("Failed to flush writer: %v", err)
-			c.sendAndCloseError("FLUSH_ERROR")
-			return
-		}
+	}
+	// Compact all the ROA updates into the TCP stream, instead of sending tiny packets
+	if err := buf.Flush(); err != nil {
+		c.logger.Errorf("Failed to flush writer: %v", err)
+		c.sendAndCloseError("FLUSH_ERROR")
+		return
 	}
 
-	c.sendEndOfDataPDU()
-	c.mutex.RUnlock()
 	c.logger.Infof("Sent all ROAs to client %s", c.id)
+	c.sendEndOfDataPDU(c.cache.getSession(), c.cache.getSerial())
 }
 
 // sendAndCloseError sends a protocol error PDU and closes the connection.
@@ -379,8 +422,9 @@ func (c *Client) Close() {
 
 // notify sends a notification to the client with the new serial number.
 func (c *Client) notify() {
+	serial := c.cache.getSerial()
 
-	pdu := protocol.NewSerialNotifyPDU(c.version, c.session, *c.serial)
+	pdu := protocol.NewSerialNotifyPDU(c.version, c.cache.getSession(), serial)
 	if err := pdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Serial Notify PDU: %v", err)
 		return
@@ -389,5 +433,5 @@ func (c *Client) notify() {
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Serial Notify PDU: %v", err)
 	}
-	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", c.serial, c.id)
+	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", serial, c.id)
 }

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -20,16 +19,12 @@ type Server struct {
 
 	clients map[string]*Client
 	urls    []string
-	roas    []roa
-	diffs   diffs
+	cache   *cache
 
 	// sync types next
 	wg sync.WaitGroup
-	mu *sync.RWMutex
 
 	// smaller fields last
-	serial       uint32
-	session      uint16
 	shuttingDown bool
 }
 
@@ -44,12 +39,8 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		cfg:     cfg,
 		clients: make(map[string]*Client),
 		urls:    cfg.RPKIURLs,
-		roas:    make([]roa, 0, 750000), // initial capacity for performance
-		diffs:   diffs{},
+		cache:   newCache(),
 		wg:      sync.WaitGroup{},
-		mu:      &sync.RWMutex{},
-		serial:  randomUint32WithinUint16(),
-		session: uint16(time.Now().Unix() & 0xFFFF),
 	}
 }
 
@@ -62,10 +53,8 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to load initial ROAs: %w", err)
 	}
-	s.mu.Lock()
-	s.roas = roas
-	s.mu.Unlock()
-	s.logger.Infof("Loaded %d initial ROAs", len(s.roas))
+	s.cache.replaceRoas(roas)
+	s.logger.Infof("Loaded %d initial ROAs", s.cache.count())
 
 	l, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
@@ -97,30 +86,24 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
-	s.mu.Lock()
-	client := NewClient(conn, s.logger, &s.roas, s.mu, &s.serial, &s.diffs)
+	client := NewClient(conn, s.logger, s.cache)
 	id := client.ID()
 	s.clients[id] = client
-	s.mu.Unlock()
 
 	s.logger.Infof("Client connected: %s", id)
 
-	if err := client.Handle(s.session); err != nil {
+	if err := client.Handle(); err != nil {
 		s.logger.Warnf("Client %s error: %v", id, err)
 	}
 
-	s.mu.Lock()
 	delete(s.clients, id)
-	s.mu.Unlock()
 
 	s.logger.Infof("Client disconnected: %s", id)
 }
 
 // Stop shuts down the server gracefully
 func (s *Server) Stop(timeout time.Duration) error {
-	s.mu.Lock()
 	s.shuttingDown = true
-	s.mu.Unlock()
 
 	s.logger.Info("Shutting down listener...")
 	if s.listener != nil {
@@ -141,9 +124,4 @@ func (s *Server) Stop(timeout time.Duration) error {
 		s.logger.Warn("Shutdown timed out; some clients may still be active")
 		return fmt.Errorf("timeout waiting for shutdown")
 	}
-}
-
-func randomUint32WithinUint16() uint32 {
-	// Generate a random number within uint16 range and convert to uint32
-	return uint32(rand.Uint32() % 65536)
 }

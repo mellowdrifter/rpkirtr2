@@ -17,16 +17,6 @@ type roa struct {
 	MaxMask uint8
 }
 
-type diffs struct {
-	// old and new are the serial numbers of the ROAs
-	old    uint32
-	new    uint32
-	delRoa []roa
-	addRoa []roa
-	// diff indicates if there are any changes between the two serial numbers
-	diff bool
-}
-
 type Jsonroa struct {
 	Prefix string `json:"prefix"`
 	Mask   uint8  `json:"maxLength"`
@@ -84,7 +74,7 @@ func (roa *roa) isValid() bool {
 	return true
 }
 
-func makeDiff(new, old []roa, serial uint32) diffs {
+func makeDiff(new, old []roa) diffs {
 	newMap := make(map[string]roa, len(new))
 	oldMap := make(map[string]roa, len(old))
 
@@ -110,8 +100,6 @@ func makeDiff(new, old []roa, serial uint32) diffs {
 	}
 
 	return diffs{
-		old:    serial,
-		new:    serial + 1,
 		addRoa: addROA,
 		delRoa: delROA,
 		diff:   len(addROA) > 0 || len(delROA) > 0,
@@ -241,19 +229,19 @@ func (s *Server) periodicROAUpdater(ctx context.Context) {
 				continue
 			}
 
-			s.mu.Lock()
-			diff := makeDiff(newROAs, s.roas, s.serial)
+			roas := s.cache.getRoas()
+			diff := makeDiff(newROAs, roas)
 			if diff.diff {
 				s.logger.Infof("The following ROAs were added: %v", diff.addRoa)
 				s.logger.Infof("The following ROAs were deleted: %v", diff.delRoa)
-				s.roas = newROAs
-				s.serial++
+				s.cache.replaceRoas(newROAs)
+				s.cache.incrementSerial()
 				for _, client := range s.clients {
-					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.serial)
+					serial := s.cache.getSerial()
+					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), serial)
 					client.notify()
 				}
 			}
-			s.mu.Unlock()
 		}
 	}
 }
