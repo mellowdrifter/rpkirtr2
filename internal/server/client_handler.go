@@ -284,7 +284,7 @@ func (c *Client) sendDiffs() {
 
 func (c *Client) sendCacheReset() {
 	c.logger.Info("Sending Cache Reset PDU to client")
-	rpdu := protocol.NewResetQueryPDU(c.version)
+	rpdu := protocol.NewCacheResetPDU(c.version)
 	if err := rpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Reset PDU: %v", err)
 		c.sendAndCloseError("WRITE_ERROR")
