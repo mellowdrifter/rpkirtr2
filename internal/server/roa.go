@@ -189,6 +189,7 @@ func (s *Server) loadROAs(ctx context.Context) ([]roa, error) {
 			return
 		}
 		roasCh <- roas
+		s.logger.Debugf("Roas retrieved from %s", url)
 	}
 
 	wg.Add(len(s.urls))

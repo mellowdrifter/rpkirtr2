@@ -100,7 +100,7 @@ func (c *Client) Handle() error {
 
 	// Step 3: Main read-process loop
 	for {
-		_, err := protocol.GetPDU(c.reader)
+		pdu, err := protocol.GetPDU(c.reader)
 		if err != nil {
 			if isDisconnectError(err) {
 				c.logger.Info("Client disconnected")
@@ -113,6 +113,7 @@ func (c *Client) Handle() error {
 		switch pdu.Type() {
 		case protocol.ResetQuery:
 			c.logger.Info("Received Reset Query PDU")
+			c.logger.Debugf("Reset Query PDU: %+v", pdu)
 			c.sendCacheResponse()
 			c.sendAllROAS()
 		case protocol.SerialQuery:
@@ -147,6 +148,7 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 	switch pdu.Type() {
 	case protocol.ResetQuery:
 		c.logger.Info("Received Reset Query PDU")
+		c.logger.Debugf("Reset Query PDU: %+v", pdu)
 		c.sendCacheResponse()
 		c.sendAllROAS()
 	case protocol.SerialQuery:
@@ -288,6 +290,7 @@ func (c *Client) sendCacheReset() {
 		c.sendAndCloseError("WRITE_ERROR")
 		return
 	}
+	c.logger.Debugf("cache reset PDU: %+v", rpdu)
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Cache Reset PDU: %v", err)
 		c.sendAndCloseError("FLUSH_ERROR")
@@ -299,7 +302,7 @@ func (c *Client) sendCacheReset() {
 func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 	c.logger.Info("Sending End of Data PDU to client")
 	// TODO: Use the actual values from the client if they are set
-	edpu := protocol.NewEndOfDataPDU(
+	epdu := protocol.NewEndOfDataPDU(
 		c.version,
 		session,
 		serial,
@@ -308,7 +311,9 @@ func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 		DefaultExpireInterval,
 	)
 
-	if err := edpu.Write(c.writer); err != nil {
+	c.logger.Debugf("end of data pdu: %+v", epdu)
+
+	if err := epdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write End of Data PDU: %v", err)
 		c.sendAndCloseError("WRITE_ERROR")
 		return
@@ -330,6 +335,8 @@ func (c *Client) sendCacheResponse() {
 		c.sendAndCloseError("WRITE_ERROR")
 		return
 	}
+
+	c.logger.Debugf("cache response PDU: %+v", cpdu)
 
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Cache Response PDU: %v", err)
@@ -426,6 +433,8 @@ func (c *Client) notify() {
 		c.logger.Errorf("Failed to write Serial Notify PDU: %v", err)
 		return
 	}
+
+	c.logger.Debugf("serial notify PDU: %+v", pdu)
 
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Serial Notify PDU: %v", err)

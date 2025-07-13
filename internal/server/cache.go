@@ -24,7 +24,7 @@ type diffs struct {
 func newCache() *cache {
 	return &cache{
 		diffs:   diffs{},
-		serial:  0,
+		serial:  1,
 		session: uint16(time.Now().Unix() & 0xFFFF),
 	}
 }
@@ -69,6 +69,9 @@ func (c *cache) getRoas() []roa {
 
 func (s *Server) periodicROAUpdater(ctx context.Context) {
 	ticker := time.NewTicker(refreshROA)
+	if s.cfg.LogLevel == "debug" {
+		ticker = time.NewTicker(1 * time.Minute)
+	}
 	defer ticker.Stop()
 
 	for {
@@ -86,9 +89,9 @@ func (s *Server) periodicROAUpdater(ctx context.Context) {
 			s.rlock()
 			diff := makeDiff(newROAs, s.cache.roas)
 			s.runlock()
-			if s.cache.isDiffs() {
-				s.logger.Infof("The following ROAs were added: %v", diff.addRoa)
-				s.logger.Infof("The following ROAs were deleted: %v", diff.delRoa)
+			if diff.diff {
+				s.logger.Debugf("The following ROAs were added: %v", diff.addRoa)
+				s.logger.Debugf("The following ROAs were deleted: %v", diff.delRoa)
 				s.lock()
 				s.cache.updateDiffs(newROAs, diff.addRoa, diff.delRoa)
 				s.cache.incrementSerial()
@@ -97,6 +100,8 @@ func (s *Server) periodicROAUpdater(ctx context.Context) {
 					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.getSerial())
 					client.notify()
 				}
+			} else {
+				s.logger.Debugf("no diffs in ROAs. New ROA length is %d", len(newROAs))
 			}
 		}
 	}
@@ -120,4 +125,8 @@ func (s *Server) runlock() {
 
 func (s *Server) getSerial() uint32 {
 	return s.cache.serial
+}
+
+func (s *Server) getSession() uint16 {
+	return s.cache.session
 }

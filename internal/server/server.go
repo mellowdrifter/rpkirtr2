@@ -29,7 +29,7 @@ type Server struct {
 }
 
 const (
-	refreshROA = 6 * time.Minute
+	refreshROA = 5 * time.Minute
 )
 
 // New creates a new Server instance
@@ -63,11 +63,12 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to listen on %s: %w", s.cfg.ListenAddr, err)
 	}
 	s.listener = l
-	s.logger.Info("Daemon running")
+	s.logger.Infof("Daemon running with session id %d", s.getSession())
 
 	// Start background update ticker
 	go s.periodicROAUpdater(ctx)
 
+	// Listen for clients
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {

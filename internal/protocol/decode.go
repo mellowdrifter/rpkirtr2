@@ -72,25 +72,22 @@ func decipherPDU(data []byte) (PDU, error) {
 		if len(data) < 12 {
 			return nil, fmt.Errorf("SerialQueryPDU too short: %d bytes", len(data))
 		}
-		return &SerialQueryPDU{
-			version: Version(data[0]),
-			ptype:   ptype,
-			session: binary.BigEndian.Uint16(data[2:4]),
-			length:  binary.BigEndian.Uint32(data[4:8]),
-			serial:  binary.BigEndian.Uint32(data[8:12]),
-		}, nil
+		sqPDU := NewSerialQueryPDU(
+			Version(data[0]),
+			binary.BigEndian.Uint16(data[2:4]),
+			binary.BigEndian.Uint32(data[8:12]),
+		)
+		return sqPDU, nil
 
 	// ResetQuery asks for all ROAs.
 	case ResetQuery:
 		if len(data) < 8 {
 			return nil, fmt.Errorf("ResetQueryPDU too short: %d bytes", len(data))
 		}
-		return &ResetQueryPDU{
-			version: Version(data[0]),
-			ptype:   ptype,
-			zero:    data[2],
-			length:  binary.BigEndian.Uint32(data[4:8]),
-		}, nil
+		rqPDU := NewResetQueryPDU(
+			Version(data[0]),
+		)
+		return rqPDU, nil
 
 	case ErrorReport:
 		if len(data) < 12 {
