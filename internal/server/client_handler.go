@@ -141,6 +141,9 @@ func (c *Client) Handle() error {
 // TODO: A lot of overlap with the main loop here...
 func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 
+	c.rlock()
+	defer c.runlock()
+
 	switch pdu.Type() {
 	case protocol.ResetQuery:
 		c.logger.Info("Received Reset Query PDU")
@@ -178,30 +181,28 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 		return nil
 	}
 
-	serial := c.cache.getSerial()
-
 	// Cache can only deal with the current or previous serial number
-	if pdu.Serial() != serial && pdu.Serial() != serial-1 {
-		c.logger.Infof("Client requested serial %d, current serial is %d", pdu.Serial(), serial)
+	if pdu.Serial() != c.getSerial() && pdu.Serial() != c.getSerial()-1 {
+		c.logger.Infof("Client requested serial %d, current serial is %d", pdu.Serial(), c.getSerial())
 		// Send a reset to the client, and it'll then request the entire cache
 		c.sendCacheReset()
 		return nil
 	}
 
 	// If the serials match, send a Cache Response PDU
-	if pdu.Serial() == serial {
+	if pdu.Serial() == c.getSerial() {
 		c.logger.Infof("Client requested current serial %d", pdu.Serial())
 		c.sendCacheResponse()
 	}
 
 	// If the serial is one less than the current, and there are diffs, send the diffs
-	if pdu.Serial() == serial-1 && c.cache.isDiffs() {
+	if pdu.Serial() == c.getSerial()-1 && c.cache.isDiffs() {
 		c.sendCacheResponse()
 		c.sendDiffs()
 	}
 
 	// Notify the client of the current serial number
-	c.sendEndOfDataPDU(c.cache.session, serial)
+	c.sendEndOfDataPDU(c.getSession(), c.getSerial())
 
 	return nil
 
@@ -323,7 +324,7 @@ func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 
 func (c *Client) sendCacheResponse() {
 	c.logger.Info("Sending Cache Response PDU to client")
-	cpdu := protocol.NewCacheResponsePDU(c.version, c.cache.getSession())
+	cpdu := protocol.NewCacheResponsePDU(c.getVersion(), c.getSession())
 	if err := cpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Response PDU: %v", err)
 		c.sendAndCloseError("WRITE_ERROR")
@@ -340,9 +341,6 @@ func (c *Client) sendCacheResponse() {
 
 func (c *Client) sendAllROAS() {
 	c.logger.Info("Sending all ROAs to client")
-
-	// Buffer writer so we send multiple PDUs per TCP packet
-	buf := bufio.NewWriter(c.conn)
 
 	roas := c.cache.getRoas()
 	for _, roa := range roas {
@@ -366,21 +364,21 @@ func (c *Client) sendAllROAS() {
 				roa.ASN,
 			)
 		}
-		if err := pdu.Write(buf); err != nil {
+		if err := pdu.Write(c.writer); err != nil {
 			c.logger.Errorf("Failed to write prefix PDUs: %v", err)
 			c.sendAndCloseError("WRITE_ERROR")
 			return
 		}
 	}
 	// Compact all the ROA updates into the TCP stream, instead of sending tiny packets
-	if err := buf.Flush(); err != nil {
+	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer: %v", err)
 		c.sendAndCloseError("FLUSH_ERROR")
 		return
 	}
 
 	c.logger.Infof("Sent all ROAs to client %s", c.id)
-	c.sendEndOfDataPDU(c.cache.getSession(), c.cache.getSerial())
+	c.sendEndOfDataPDU(c.getSession(), c.getSerial())
 }
 
 // sendAndCloseError sends a protocol error PDU and closes the connection.
@@ -422,9 +420,8 @@ func (c *Client) Close() {
 
 // notify sends a notification to the client with the new serial number.
 func (c *Client) notify() {
-	serial := c.cache.getSerial()
 
-	pdu := protocol.NewSerialNotifyPDU(c.version, c.cache.getSession(), serial)
+	pdu := protocol.NewSerialNotifyPDU(c.version, c.getSession(), c.getSerial())
 	if err := pdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Serial Notify PDU: %v", err)
 		return
@@ -433,5 +430,25 @@ func (c *Client) notify() {
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Serial Notify PDU: %v", err)
 	}
-	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", serial, c.id)
+	c.logger.Infof("Sent Serial Notify PDU with serial %d to client %s", c.getSerial(), c.id)
+}
+
+func (c *Client) getSerial() uint32 {
+	return c.cache.serial
+}
+
+func (c *Client) getSession() uint16 {
+	return c.cache.session
+}
+
+func (c *Client) rlock() {
+	c.cache.mu.RLock()
+}
+
+func (c *Client) runlock() {
+	c.cache.mu.RUnlock()
+}
+
+func (c *Client) getVersion() protocol.Version {
+	return c.version
 }

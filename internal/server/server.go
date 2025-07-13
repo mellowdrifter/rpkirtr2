@@ -53,7 +53,9 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to load initial ROAs: %w", err)
 	}
+	s.lock()
 	s.cache.replaceRoas(roas)
+	s.unlock()
 	s.logger.Infof("Loaded %d initial ROAs", s.cache.count())
 
 	l, err := net.Listen("tcp", s.cfg.ListenAddr)
