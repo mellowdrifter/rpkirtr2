@@ -461,16 +461,21 @@ type ErrorReportPDU struct {
 	text    []byte // Arbitrary text of the error diagnostic message
 }
 
-func NewErrorReportPDU(ver Version, code uint16, pdu []byte, text []byte) *ErrorReportPDU {
+func NewErrorReportPDU(ver Version, code uint16, offendingPDU []byte, text string) *ErrorReportPDU {
+	pduLen := uint32(len(offendingPDU))
+	textBytes := []byte(text)
+	textLen := uint32(len(textBytes))
+	totalLen := 12 + len(offendingPDU) + 4 + len(textBytes)
+
 	return &ErrorReportPDU{
 		verion:  ver,
 		ptype:   ErrorReport,
 		code:    code,
-		length:  uint32(12 + len(pdu) + len(text)), // 12 bytes for header and lengths
-		pduLen:  uint32(len(pdu)),
-		pdu:     pdu,
-		textLen: uint32(len(text)),
-		text:    text,
+		length:  uint32(totalLen),
+		pduLen:  pduLen,
+		pdu:     offendingPDU,
+		textLen: textLen,
+		text:    textBytes,
 	}
 }
 

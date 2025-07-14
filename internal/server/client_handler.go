@@ -392,7 +392,9 @@ func (c *Client) sendAllROAS() {
 func (c *Client) sendAndCloseError(msg string) {
 	// TODO: Figure out error code mapping
 	// Also fix the version field
-	pdu := protocol.NewErrorReportPDU(2, 10, nil, []byte(msg))
+	// TODO: There should be two error functions, one that takes in PDUs and another that doesn't
+	// Adding bytes of msg as a temp holder
+	pdu := protocol.NewErrorReportPDU(2, 10, []byte(msg), msg)
 	pdu.Write(c.writer)
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Warnf("Failed to send error PDU: %v", err)
