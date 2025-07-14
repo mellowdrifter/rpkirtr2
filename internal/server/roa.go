@@ -39,10 +39,10 @@ func (r roa) Key() string {
 // It only appends if the ROA is valid
 func GetSetOfValidatedROAs(roas []roa) []roa {
 	u := make([]roa, 0, len(roas))
-	m := make(map[roa]bool)
+	m := make(map[roa]struct{})
 	for _, roa := range roas {
 		if _, ok := m[roa]; !ok {
-			m[roa] = true
+			m[roa] = struct{}{}
 			if roa.isValid() {
 				u = append(u, roa)
 			}
@@ -136,7 +136,7 @@ func fetchROAsFromURL(ctx context.Context, url string) ([]roa, error) {
 	}
 
 	// Convert JSON ROAs to internal roa type
-	var roas = make([]roa, len(r.Roas))
+	roas := make([]roa, 0, len(r.Roas))
 	for _, r := range r.Roas {
 		// Parse prefix string to netip.Prefix
 		prefix, err := netip.ParsePrefix(r.Prefix)

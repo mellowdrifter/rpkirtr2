@@ -3,6 +3,7 @@ package protocol
 type PDUType uint8
 type Version uint8
 type Flags uint8
+type ErrorCode uint16
 
 const (
 	// PDU Types
@@ -17,6 +18,20 @@ const (
 	RouterKey     PDUType = 9
 	ErrorReport   PDUType = 10
 	Aspa          PDUType = 11
+
+	// Error codes
+	// https://www.ietf.org/archive/id/draft-ietf-sidrops-8210bis-21.html#name-error-codes
+	CorruptData        ErrorCode = 0
+	InternalError      ErrorCode = 1
+	NoData             ErrorCode = 2
+	InvalidRequest     ErrorCode = 3
+	UnsupportedVersion ErrorCode = 4
+	UnsupportedPDU     ErrorCode = 5
+	UnknownWithdrawal  ErrorCode = 6
+	Duplicate          ErrorCode = 7
+	UnexpectedVersion  ErrorCode = 8
+	ASPAListError      ErrorCode = 9
+	TransportError     ErrorCode = 10
 
 	// lengths
 	minPDULength        = 8
