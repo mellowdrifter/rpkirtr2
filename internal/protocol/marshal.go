@@ -11,10 +11,10 @@ func writeFull(w io.Writer, buf []byte) error {
 	for total < len(buf) {
 		n, err := w.Write(buf[total:])
 		if err != nil {
-			return fmt.Errorf("write error after %d bytes: %w", total, err)
+			return fmt.Errorf("write error after %d bytes (wanted %d): %w", total, len(buf), err)
 		}
 		if n == 0 {
-			return fmt.Errorf("short write: wrote 0 bytes")
+			return fmt.Errorf("short write: wrote 0 bytes after %d", total)
 		}
 		total += n
 	}

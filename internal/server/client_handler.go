@@ -142,9 +142,6 @@ func (c *Client) Handle() error {
 // TODO: A lot of overlap with the main loop here...
 func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 
-	c.rlock()
-	defer c.runlock()
-
 	switch pdu.Type() {
 	case protocol.ResetQuery:
 		c.logger.Info("Received Reset Query PDU")
@@ -211,6 +208,9 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 }
 
 func (c *Client) sendDiffs() {
+	c.rlock()
+	defer c.runlock()
+
 	c.logger.Info("Sending diffs to client")
 
 	// Send all ROAs that were added
@@ -300,6 +300,9 @@ func (c *Client) sendCacheReset() {
 }
 
 func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
+	c.rlock()
+	defer c.runlock()
+
 	c.logger.Info("Sending End of Data PDU to client")
 	// TODO: Use the actual values from the client if they are set
 	epdu := protocol.NewEndOfDataPDU(
@@ -328,6 +331,9 @@ func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 }
 
 func (c *Client) sendCacheResponse() {
+	c.rlock()
+	defer c.runlock()
+
 	c.logger.Info("Sending Cache Response PDU to client")
 	cpdu := protocol.NewCacheResponsePDU(c.getVersion(), c.getSession())
 	if err := cpdu.Write(c.writer); err != nil {
@@ -347,6 +353,9 @@ func (c *Client) sendCacheResponse() {
 }
 
 func (c *Client) sendAllROAS() {
+	c.rlock()
+	defer c.runlock()
+
 	c.logger.Info("Sending all ROAs to client")
 
 	roas := c.cache.getRoas()

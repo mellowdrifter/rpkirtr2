@@ -15,6 +15,10 @@ import (
 	"github.com/mellowdrifter/rpkirtr2/internal/server"
 )
 
+const (
+	shutdownTimeout = 1 * time.Minute
+)
+
 func main() {
 	// Load configuration
 	cfg, err := config.Load()
@@ -43,7 +47,6 @@ func main() {
 	sig := <-sigCh
 	logger.Infof("Signal received: %s, shutting down gracefully...", sig)
 
-	shutdownTimeout := 5 * time.Second
 	if err := srv.Stop(shutdownTimeout); err != nil {
 		logger.Errorf("Shutdown error: %v", err)
 	} else {
