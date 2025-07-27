@@ -3,6 +3,7 @@ package protocol
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"slices"
 )
 
@@ -19,7 +20,7 @@ func Negotiate(r *bufio.Reader) (Version, error) {
 	}
 	version := int(ver[0])
 	if !slices.Contains(supportedVersions, version) {
-		return 0, errors.New("unsupported version: " + string(ver[0]))
+		return 0, fmt.Errorf("unsupported version: %d", ver)
 	}
 	return Version(version), nil
 }

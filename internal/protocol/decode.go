@@ -109,7 +109,7 @@ func decipherPDU(data []byte) (PDU, error) {
 		return &ErrorReportPDU{
 			verion:  Version(data[0]),
 			ptype:   ptype,
-			code:    binary.BigEndian.Uint16(data[2:4]),
+			code:    ErrorCode(binary.BigEndian.Uint16(data[2:4])),
 			length:  binary.BigEndian.Uint32(data[4:8]),
 			pduLen:  pduLen,
 			pdu:     data[12 : 12+pduLen],

@@ -182,7 +182,7 @@ func (e *ErrorReportPDU) Write(w io.Writer) error {
 
 	buf[0] = byte(e.verion)
 	buf[1] = byte(e.ptype)
-	binary.BigEndian.PutUint16(buf[2:], e.code)
+	binary.BigEndian.PutUint16(buf[2:], uint16(e.code))
 	binary.BigEndian.PutUint32(buf[4:], uint32(bufLen))
 	binary.BigEndian.PutUint32(buf[8:], e.pduLen)
 

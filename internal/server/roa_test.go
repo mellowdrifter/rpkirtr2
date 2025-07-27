@@ -87,7 +87,7 @@ func TestMakeDiff2(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := makeDiff(tt.new, tt.old, tt.serial)
+			got := makeDiff(tt.new, tt.old)
 			if !reflect.DeepEqual(got.addRoa, tt.wantAdd) {
 				t.Errorf("addRoa = %v, want %v", got.addRoa, tt.wantAdd)
 			}
@@ -96,12 +96,6 @@ func TestMakeDiff2(t *testing.T) {
 			}
 			if got.diff != tt.wantDiff {
 				t.Errorf("diff = %v, want %v", got.diff, tt.wantDiff)
-			}
-			if got.old != tt.serial {
-				t.Errorf("old serial = %v, want %v", got.old, tt.serial)
-			}
-			if got.new != tt.serial+1 {
-				t.Errorf("new serial = %v, want %v", got.new, tt.serial+1)
 			}
 		})
 	}
@@ -134,6 +128,6 @@ func BenchmarkMakeDiff(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = makeDiff(newROAs, oldROAs, 42)
+		_ = makeDiff(newROAs, oldROAs)
 	}
 }

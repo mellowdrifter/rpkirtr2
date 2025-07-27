@@ -78,7 +78,7 @@ func (c *Client) Handle() error {
 	ver, err := protocol.Negotiate(c.reader)
 	if err != nil {
 		c.logger.Warnf("Negotiation failed: %v", err)
-		c.sendAndCloseError("NEGOTIATION_FAILED")
+		c.sendAndCloseError("NEGOTIATION_FAILED", protocol.UnsupportedVersion)
 		return err
 	}
 
@@ -89,12 +89,12 @@ func (c *Client) Handle() error {
 	pdu, err := protocol.GetPDU(c.reader)
 	if err != nil {
 		c.logger.Warnf("Failed to read initial PDU: %v", err)
-		c.sendAndCloseError("INITIAL_PDU_READ_FAILED")
+		c.sendAndCloseError("INVALID_REQUEST", protocol.InvalidRequest)
 		return err
 	}
 	if err := c.sendInitialResponse(pdu); err != nil {
 		c.logger.Warnf("Failed to send initial messages: %v", err)
-		c.sendAndCloseError("INIT_FAILED")
+		c.sendAndCloseError("INIT_FAILED", protocol.InternalError)
 		return err
 	}
 
@@ -107,7 +107,7 @@ func (c *Client) Handle() error {
 				return nil
 			}
 			c.logger.Warnf("Read error: %v", err)
-			c.sendAndCloseError("READ_ERROR")
+			c.sendAndCloseError("READ_ERROR", protocol.CorruptData)
 			return err
 		}
 		switch pdu.Type() {
@@ -121,12 +121,12 @@ func (c *Client) Handle() error {
 			sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
 			if !ok {
 				c.logger.Warnf("Failed to cast PDU to *SerialQueryPDU")
-				c.sendAndCloseError("SERIAL_QUERY_CAST_ERROR")
+				c.sendAndCloseError("SERIAL_QUERY_CAST_ERROR", protocol.InternalError)
 				return errors.New("failed to cast PDU to *SerialQueryPDU")
 			}
 			if err := c.handleSerialQuery(sqPDU); err != nil {
 				c.logger.Warnf("Failed to handle Serial Query PDU: %v", err)
-				c.sendAndCloseError("SERIAL_QUERY_ERROR")
+				c.sendAndCloseError("SERIAL_QUERY_ERROR", protocol.InternalError)
 				return err
 			}
 			// TODO: Handle errors and whatever other PDUs the client might send
@@ -153,12 +153,12 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 		sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
 		if !ok {
 			c.logger.Warnf("Failed to cast PDU to *SerialQueryPDU")
-			c.sendAndCloseError("SERIAL_QUERY_CAST_ERROR")
+			c.sendAndCloseError("SERIAL_QUERY_CAST_ERROR", protocol.InternalError)
 			return errors.New("failed to cast PDU to *SerialQueryPDU")
 		}
 		if err := c.handleSerialQuery(sqPDU); err != nil {
 			c.logger.Warnf("Failed to handle Serial Query PDU: %v", err)
-			c.sendAndCloseError("SERIAL_QUERY_ERROR")
+			c.sendAndCloseError("SERIAL_QUERY_ERROR", protocol.InternalError)
 			return err
 		}
 	default:
@@ -238,13 +238,13 @@ func (c *Client) sendDiffs() {
 		}
 		if err := pdu.Write(c.writer); err != nil {
 			c.logger.Errorf("Failed to write PDU for added ROA: %v", err)
-			c.sendAndCloseError("WRITE_ERROR")
+			c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 			return
 		}
 	}
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending PDU for added ROA: %v", err)
-		c.sendAndCloseError("FLUSH_ERROR")
+		c.sendAndCloseError("FLUSH_ERROR", protocol.InternalError)
 		return
 	}
 
@@ -271,13 +271,13 @@ func (c *Client) sendDiffs() {
 		}
 		if err := pdu.Write(c.writer); err != nil {
 			c.logger.Errorf("Failed to write PDU for deleted ROA: %v", err)
-			c.sendAndCloseError("WRITE_ERROR")
+			c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 			return
 		}
 	}
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending PDU for deleted ROA: %v", err)
-		c.sendAndCloseError("FLUSH_ERROR")
+		c.sendAndCloseError("FLUSH_ERROR", protocol.InternalError)
 		return
 	}
 }
@@ -287,13 +287,13 @@ func (c *Client) sendCacheReset() {
 	rpdu := protocol.NewCacheResetPDU(c.version)
 	if err := rpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Reset PDU: %v", err)
-		c.sendAndCloseError("WRITE_ERROR")
+		c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 		return
 	}
 	c.logger.Debugf("cache reset PDU: %+v", rpdu)
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Cache Reset PDU: %v", err)
-		c.sendAndCloseError("FLUSH_ERROR")
+		c.sendAndCloseError("FLUSH_ERROR", protocol.InternalError)
 		return
 	}
 	c.logger.Info("Cache Reset PDU sent successfully")
@@ -318,13 +318,13 @@ func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 
 	if err := epdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write End of Data PDU: %v", err)
-		c.sendAndCloseError("WRITE_ERROR")
+		c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 		return
 	}
 
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending End of Data PDU: %v", err)
-		c.sendAndCloseError("FLUSH_ERROR")
+		c.sendAndCloseError("FLUSH_ERROR", protocol.InternalError)
 		return
 	}
 	c.logger.Info("End of Data PDU sent successfully")
@@ -338,7 +338,7 @@ func (c *Client) sendCacheResponse() {
 	cpdu := protocol.NewCacheResponsePDU(c.getVersion(), c.getSession())
 	if err := cpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Response PDU: %v", err)
-		c.sendAndCloseError("WRITE_ERROR")
+		c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 		return
 	}
 
@@ -346,7 +346,7 @@ func (c *Client) sendCacheResponse() {
 
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer after sending Cache Response PDU: %v", err)
-		c.sendAndCloseError("FLUSH_ERROR")
+		c.sendAndCloseError("FLUSH_ERROR", protocol.InternalError)
 		return
 	}
 	c.logger.Info("Cache Response PDU sent successfully")
@@ -382,14 +382,14 @@ func (c *Client) sendAllROAS() {
 		}
 		if err := pdu.Write(c.writer); err != nil {
 			c.logger.Errorf("Failed to write prefix PDUs: %v", err)
-			c.sendAndCloseError("WRITE_ERROR")
+			c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 			return
 		}
 	}
 	// Compact all the ROA updates into the TCP stream, instead of sending tiny packets
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer: %v", err)
-		c.sendAndCloseError("FLUSH_ERROR")
+		c.sendAndCloseError("FLUSH_ERROR", protocol.InternalError)
 		return
 	}
 
@@ -398,12 +398,12 @@ func (c *Client) sendAllROAS() {
 }
 
 // sendAndCloseError sends a protocol error PDU and closes the connection.
-func (c *Client) sendAndCloseError(msg string) {
+func (c *Client) sendAndCloseError(msg string, code protocol.ErrorCode) {
 	// TODO: Figure out error code mapping
 	// Also fix the version field
 	// TODO: There should be two error functions, one that takes in PDUs and another that doesn't
 	// Adding bytes of msg as a temp holder
-	pdu := protocol.NewErrorReportPDU(2, 10, []byte(msg), msg)
+	pdu := protocol.NewErrorReportPDU(2, code, []byte(msg), msg)
 	pdu.Write(c.writer)
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Warnf("Failed to send error PDU: %v", err)
