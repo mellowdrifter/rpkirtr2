@@ -33,29 +33,25 @@ func TestUnsupportedVersionsResetQuery(t *testing.T) {
 				t.Fatalf("Failed to read Error Report: %v", err)
 			}
 
-			if len(resp) < 16 {
-				t.Fatalf("Error Report PDU too short: %x", resp)
-			}
-
 			pduType := resp[1]
 			if pduType != 10 {
-				t.Errorf("Expected Error Report (type 10), got type: %d", pduType)
+				t.Fatalf("Expected Error Report (type 10), got type: %d", pduType)
+			}
+
+			if len(resp) < 16 {
+				t.Fatalf("Error Report PDU too short: %x", resp)
 			}
 
 			// Error code should be 4 (unsupported version)
 			errorCode := binary.BigEndian.Uint16(resp[2:4])
 			if errorCode != 4 {
 				t.Errorf("Expected error code 4 (unsupported version), got: %d", errorCode)
-			} else {
-				t.Logf("Received expected error code: %d", errorCode)
 			}
 
 			// Confirm connection was closed
 			_, err = client.Receive(4096)
 			if err == nil {
 				t.Errorf("Expected connection to close after error, but read succeeded")
-			} else {
-				t.Logf("Connection closed after Error Report: %v", err)
 			}
 		})
 	}
@@ -84,29 +80,25 @@ func TestUnsupportedVersionsSerialQuery(t *testing.T) {
 				t.Fatalf("Failed to read Error Report: %v", err)
 			}
 
-			if len(resp) < 16 {
-				t.Fatalf("Error Report PDU too short: %x", resp)
-			}
-
 			pduType := resp[1]
 			if pduType != 10 {
-				t.Errorf("Expected Error Report (type 10), got type: %d", pduType)
+				t.Fatalf("Expected Error Report (type 10), got type: %d", pduType)
+			}
+
+			if len(resp) < 16 {
+				t.Fatalf("Error Report PDU too short: %x", resp)
 			}
 
 			// Error code should be 4 (unsupported version)
 			errorCode := binary.BigEndian.Uint16(resp[2:4])
 			if errorCode != 4 {
 				t.Errorf("Expected error code 4 (unsupported version), got: %d", errorCode)
-			} else {
-				t.Logf("Received expected error code: %d", errorCode)
 			}
 
 			// Confirm connection was closed
 			_, err = client.Receive(4096)
 			if err == nil {
 				t.Errorf("Expected connection to close after error, but read succeeded")
-			} else {
-				t.Logf("Connection closed after Error Report: %v", err)
 			}
 
 		})
