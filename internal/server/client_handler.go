@@ -110,6 +110,11 @@ func (c *Client) Handle() error {
 			c.sendAndCloseError("READ_ERROR", protocol.CorruptData)
 			return err
 		}
+		if c.version != pdu.Version() {
+			c.logger.Warnf("Version mismatch: expected %d, got %d", c.version, pdu.Version())
+			c.sendAndCloseError("VERSION_MISMATCH", protocol.UnexpectedVersion)
+			return errors.New("version mismatch")
+		}
 		switch pdu.Type() {
 		case protocol.ResetQuery:
 			c.logger.Info("Received Reset Query PDU")

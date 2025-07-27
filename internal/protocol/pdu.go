@@ -8,6 +8,7 @@ import (
 type PDU interface {
 	Type() PDUType
 	Write(w io.Writer) error
+	Version() Version
 }
 
 type SerialNotifyPDU struct {
@@ -52,6 +53,10 @@ func (s *SerialNotifyPDU) Serial() uint32 {
 	return s.serial
 }
 
+func (s *SerialNotifyPDU) Version() Version {
+	return s.version
+}
+
 type SerialQueryPDU struct {
 	/*
 		0          8          16         24        31
@@ -94,6 +99,10 @@ func (s *SerialQueryPDU) Serial() uint32 {
 	return s.serial
 }
 
+func (s *SerialQueryPDU) Version() Version {
+	return s.version
+}
+
 type ResetQueryPDU struct {
 	/*
 		0          8          16         24        31
@@ -126,6 +135,10 @@ func (r *ResetQueryPDU) Type() PDUType {
 	return r.ptype
 }
 
+func (r *ResetQueryPDU) Version() Version {
+	return r.version
+}
+
 type CacheResponsePDU struct {
 	/*
 		0          8          16         24        31
@@ -147,6 +160,10 @@ type CacheResponsePDU struct {
 
 func (c *CacheResponsePDU) Type() PDUType {
 	return c.ptype
+}
+
+func (c *CacheResponsePDU) Version() Version {
+	return c.version
 }
 
 func NewCacheResponsePDU(ver Version, session uint16) *CacheResponsePDU {
@@ -214,6 +231,10 @@ func (i *Ipv4PrefixPDU) Type() PDUType {
 	return i.ptype
 }
 
+func (i *Ipv4PrefixPDU) Version() Version {
+	return i.version
+}
+
 type Ipv6PrefixPDU struct {
 	/*
 		0          8          16         24        31
@@ -274,6 +295,10 @@ func (i *Ipv6PrefixPDU) Type() PDUType {
 	return i.ptype
 }
 
+func (i *Ipv6PrefixPDU) Version() Version {
+	return i.version
+}
+
 type EndOfDataPDU struct {
 	/*
 		0          8          16         24        31
@@ -330,6 +355,10 @@ func (e *EndOfDataPDU) Type() PDUType {
 	return e.ptype
 }
 
+func (e *EndOfDataPDU) Version() Version {
+	return e.version
+}
+
 type cacheResetPDU struct {
 	/*
 		0          8          16         24        31
@@ -361,6 +390,10 @@ func NewCacheResetPDU(ver Version) *cacheResetPDU {
 
 func (c *cacheResetPDU) Type() PDUType {
 	return c.ptype
+}
+
+func (c *cacheResetPDU) Version() Version {
+	return c.version
 }
 
 type RouterKeyPDU struct {
@@ -418,6 +451,10 @@ func NewRouterKeyPDU(ver Version, session uint16, ski [20]byte, asn uint32, skiI
 
 func (r *RouterKeyPDU) Type() PDUType {
 	return r.ptype
+}
+
+func (r *RouterKeyPDU) Version() Version {
+	return r.version
 }
 
 type ErrorReportPDU struct {
@@ -483,6 +520,10 @@ func (e *ErrorReportPDU) Type() PDUType {
 	return e.ptype
 }
 
+func (e *ErrorReportPDU) Version() Version {
+	return e.verion
+}
+
 type AspaPDU struct {
 	/*
 	   0          8          16         24        31
@@ -527,4 +568,8 @@ func NewAspaPDU(ver Version, flags uint8, casn uint32, pasn []uint32) *AspaPDU {
 
 func (a *AspaPDU) Type() PDUType {
 	return a.ptype
+}
+
+func (a *AspaPDU) Version() Version {
+	return a.version
 }
