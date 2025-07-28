@@ -22,7 +22,8 @@ type Server struct {
 	cache   *cache
 
 	// sync types next
-	wg sync.WaitGroup
+	wg        sync.WaitGroup
+	clientsMu sync.RWMutex
 
 	// smaller fields last
 	shuttingDown bool
@@ -91,7 +92,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	client := NewClient(conn, s.logger, s.cache)
 	id := client.ID()
+	s.clientsMu.Lock()
 	s.clients[id] = client
+	s.clientsMu.Unlock()
 
 	s.logger.Infof("Client connected: %s", id)
 
@@ -99,7 +102,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 		s.logger.Warnf("Client %s error: %v", id, err)
 	}
 
+	s.clientsMu.Lock()
 	delete(s.clients, id)
+	s.clientsMu.Unlock()
 
 	s.logger.Infof("Client disconnected: %s", id)
 }

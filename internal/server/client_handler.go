@@ -358,9 +358,8 @@ func (c *Client) sendCacheResponse() {
 }
 
 func (c *Client) sendAllROAS() {
-	roas := c.cache.getRoas()
-
 	c.logger.Info("Sending all ROAs to client")
+	roas := c.cache.getRoas()
 
 	var total = len(roas)
 	var written = 0
