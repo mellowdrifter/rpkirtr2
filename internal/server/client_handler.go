@@ -358,12 +358,12 @@ func (c *Client) sendCacheResponse() {
 }
 
 func (c *Client) sendAllROAS() {
-	c.rlock()
-	defer c.runlock()
+	roas := c.cache.getRoas()
 
 	c.logger.Info("Sending all ROAs to client")
 
-	roas := c.cache.getRoas()
+	var total = len(roas)
+	var written = 0
 	for _, roa := range roas {
 		var pdu protocol.PDU
 		if roa.Prefix.Addr().Is4() {
@@ -387,9 +387,12 @@ func (c *Client) sendAllROAS() {
 		}
 		if err := pdu.Write(c.writer); err != nil {
 			c.logger.Errorf("Failed to write prefix PDUs: %v", err)
+			c.logger.Warnf("Failed to write prefix PDU: %+v", pdu)
+			c.logger.Warnf("Total written so far: %d out of %d", written, total)
 			c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
 			return
 		}
+		written++
 	}
 	// Compact all the ROA updates into the TCP stream, instead of sending tiny packets
 	if err := c.writer.Flush(); err != nil {

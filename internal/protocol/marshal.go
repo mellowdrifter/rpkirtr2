@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 )
 
 func writeFull(w io.Writer, buf []byte) error {
@@ -93,6 +94,7 @@ func (i *Ipv4PrefixPDU) Write(w io.Writer) error {
 	binary.BigEndian.PutUint32(buf[16:], i.asn)
 
 	if err := writeFull(w, buf); err != nil {
+		log.Printf("Failed to write Ipv4PrefixPDU: %v", buf)
 		return fmt.Errorf("failed to write Ipv4PrefixPDU: %w", err)
 	}
 	return nil
