@@ -101,6 +101,7 @@ func TestVersionMismatch(t *testing.T) {
 	if errorCode != 8 {
 		t.Errorf("Expected error code 8 (unexpected version), got: %d", errorCode)
 	}
+	t.Logf("✅ Received Error Report for version mismatch: %d", errorCode)
 
 	// Confirm connection was closed
 	_, err = client.Receive(4096)

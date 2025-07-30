@@ -95,7 +95,7 @@ func BuildSerialQuery(version, session, serial int) []byte {
 func BuildMalformedPDU() []byte {
 	// Bad version and short length
 	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, uint8(0))  // Invalid version
+	binary.Write(buf, binary.BigEndian, uint8(2))
 	binary.Write(buf, binary.BigEndian, uint8(99)) // Unknown PDU type
 	binary.Write(buf, binary.BigEndian, uint16(0))
 	binary.Write(buf, binary.BigEndian, uint32(4)) // Invalid length

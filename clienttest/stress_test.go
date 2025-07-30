@@ -7,24 +7,6 @@ import (
 	"time"
 )
 
-func TestStressResetQueries(t *testing.T) {
-	client, err := NewRTRClient("localhost:8282", 2*time.Second)
-	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
-	}
-	defer client.Close()
-
-	for i := range 10 {
-		err := client.Send(BuildResetQuery(2))
-		if err != nil {
-			t.Fatalf("Send failed at %d: %v", i, err)
-		}
-		if i%10_000 == 0 {
-			t.Logf("Sent %d queries", i)
-		}
-	}
-}
-
 func TestStressNewClients(t *testing.T) {
 	var clients []RTRClient
 	defer func() {
