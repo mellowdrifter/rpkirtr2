@@ -16,7 +16,7 @@ func TestUnsupportedVersionsResetQuery(t *testing.T) {
 			continue // Skip supported versions
 		}
 		t.Run(fmt.Sprintf("Testing version %d", i), func(t *testing.T) {
-			client, err := NewRTRClient("localhost:8282", 2*time.Second)
+			client, err := NewRTRClient(getTestAddr(), 2*time.Second)
 			if err != nil {
 				t.Fatalf("Connect failed: %v", err)
 			}
@@ -63,7 +63,7 @@ func TestUnsupportedVersionsSerialQuery(t *testing.T) {
 			continue // Skip supported versions
 		}
 		t.Run(fmt.Sprintf("Testing version %d", i), func(t *testing.T) {
-			client, err := NewRTRClient("localhost:8282", 2*time.Second)
+			client, err := NewRTRClient(getTestAddr(), 2*time.Second)
 			if err != nil {
 				t.Fatalf("Connect failed: %v", err)
 			}

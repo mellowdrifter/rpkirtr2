@@ -492,7 +492,7 @@ type ErrorReportPDU struct {
 		|                                           |
 		`-------------------------------------------'
 	*/
-	verion  Version
+	version Version
 	ptype   PDUType
 	code    ErrorCode
 	length  uint32
@@ -509,7 +509,7 @@ func NewErrorReportPDU(ver Version, code ErrorCode, offendingPDU []byte, text st
 	totalLen := 12 + len(offendingPDU) + 4 + len(textBytes)
 
 	return &ErrorReportPDU{
-		verion:  ver,
+		version: ver,
 		ptype:   ErrorReport,
 		code:    code,
 		length:  uint32(totalLen),
@@ -525,7 +525,11 @@ func (e *ErrorReportPDU) Type() PDUType {
 }
 
 func (e *ErrorReportPDU) Version() Version {
-	return e.verion
+	return e.version
+}
+
+func (e *ErrorReportPDU) Code() ErrorCode {
+	return e.code
 }
 
 type AspaPDU struct {

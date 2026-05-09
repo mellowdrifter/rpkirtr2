@@ -182,7 +182,7 @@ func (e *ErrorReportPDU) Write(w io.Writer) error {
 	bufLen := 12 + int(e.pduLen) + 4 + int(e.textLen) // 4 bytes for textLen field
 	buf := make([]byte, bufLen)
 
-	buf[0] = byte(e.verion)
+	buf[0] = byte(e.version)
 	buf[1] = byte(e.ptype)
 	binary.BigEndian.PutUint16(buf[2:], uint16(e.code))
 	binary.BigEndian.PutUint32(buf[4:], uint32(bufLen))

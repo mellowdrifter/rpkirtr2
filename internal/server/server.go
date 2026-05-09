@@ -116,7 +116,7 @@ func (s *Server) Stop(timeout time.Duration) error {
 
 	s.logger.Info("Shutting down listener...")
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
 
 	done := make(chan struct{})
@@ -133,4 +133,12 @@ func (s *Server) Stop(timeout time.Duration) error {
 		s.logger.Warn("Shutdown timed out; some clients may still be active")
 		return fmt.Errorf("timeout waiting for shutdown")
 	}
+}
+
+// ListenAddr returns the actual address the server is listening on.
+func (s *Server) ListenAddr() string {
+	if s.listener != nil {
+		return s.listener.Addr().String()
+	}
+	return ""
 }

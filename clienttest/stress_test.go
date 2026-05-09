@@ -17,7 +17,7 @@ func TestStressNewClients(t *testing.T) {
 
 	// Create 100 clients
 	for i := range 100 {
-		client, err := NewRTRClient("localhost:8282", 2*time.Second)
+		client, err := NewRTRClient(getTestAddr(), 2*time.Second)
 		if err != nil {
 			t.Fatalf("Connect failed at %d: %v", i, err)
 		}

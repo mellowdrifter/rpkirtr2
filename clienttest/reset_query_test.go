@@ -6,7 +6,7 @@ import (
 )
 
 func TestResetQuery(t *testing.T) {
-	client, err := NewRTRClient("localhost:8282", 2*time.Second)
+	client, err := NewRTRClient(getTestAddr(), 2*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
