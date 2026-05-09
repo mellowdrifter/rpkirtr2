@@ -99,7 +99,14 @@ func (s *Server) periodicROAUpdater(ctx context.Context) {
 				s.cache.updateDiffs(newROAs, diff.addRoa, diff.delRoa)
 				s.cache.incrementSerial()
 				s.unlock()
+				s.clientsMu.RLock()
+				clients := make([]*Client, 0, len(s.clients))
 				for _, client := range s.clients {
+					clients = append(clients, client)
+				}
+				s.clientsMu.RUnlock()
+
+				for _, client := range clients {
 					s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.getSerial())
 					client.notify()
 				}

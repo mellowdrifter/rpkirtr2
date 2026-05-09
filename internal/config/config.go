@@ -16,6 +16,7 @@ type Config struct {
 	ListenAddr string   // e.g. ":8080"
 	LogLevel   string   // "info", "debug", etc.
 	RPKIURLs   []string // URLs to fetch RPKI data from, e.g. ["http://rpki.example.com/roa.json"]
+	TestMode   bool
 }
 
 const (
@@ -39,6 +40,8 @@ func (u *urlList) Set(value string) error {
 // Load reads config from flags, env vars, or defaults.
 func Load() (*Config, error) {
 	var urls urlList
+	var testMode = flag.Bool("testmode", false, "hidden flag for test mode")
+
 	cfg := &Config{
 		ListenAddr: ":8282",
 		LogLevel:   "info",
@@ -49,10 +52,21 @@ func Load() (*Config, error) {
 	loglevel := flag.String("loglevel", cfg.LogLevel, "Log level (debug, info, warn, error)")
 	flag.Var(&urls, "rpki-url", "RPKI JSON URL (can be specified multiple times)")
 
+	flag.Usage = func() {
+		fmt.Println("Usage:")
+		flag.VisitAll(func(f *flag.Flag) {
+			if f.Name == "testmode" {
+				return // hide this flag
+			}
+			fmt.Printf("  -%s: %s\n", f.Name, f.Usage)
+		})
+	}
+
 	flag.Parse()
 
 	cfg.ListenAddr = *listen
 	cfg.LogLevel = *loglevel
+	cfg.TestMode = *testMode
 
 	// Use provided URLs if any, otherwise fallback to default
 	if len(urls) > 0 {

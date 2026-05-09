@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mellowdrifter/rpkirtr2/internal/config"
@@ -26,7 +27,7 @@ type Server struct {
 	clientsMu sync.RWMutex
 
 	// smaller fields last
-	shuttingDown bool
+	shuttingDown atomic.Bool
 }
 
 const (
@@ -73,7 +74,7 @@ func (s *Server) Start() error {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			if s.shuttingDown {
+			if s.shuttingDown.Load() {
 				return nil // graceful exit
 			}
 			s.logger.Errorf("accept error: %v", err)
@@ -111,7 +112,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 // Stop shuts down the server gracefully
 func (s *Server) Stop(timeout time.Duration) error {
-	s.shuttingDown = true
+	s.shuttingDown.Store(true)
 
 	s.logger.Info("Shutting down listener...")
 	if s.listener != nil {
