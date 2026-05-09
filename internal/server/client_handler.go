@@ -235,29 +235,29 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	return nil
 }
 
-func (c *Client) sendDiffs(add, del []roa) {
+func (c *Client) sendDiffs(add, del []ROA) {
 	c.logger.Info("Sending diffs to client")
 
 	// Send all ROAs that were added
-	for _, roa := range add {
+	for _, ROA := range add {
 		var pdu protocol.PDU
-		if roa.Prefix.Addr().Is4() {
+		if ROA.Prefix.Addr().Is4() {
 			pdu = protocol.NewIpv4PrefixPDU(
 				c.version,
 				protocol.Announce,
-				uint8(roa.Prefix.Bits()),
-				roa.MaxMask,
-				roa.Prefix.Addr().As4(),
-				roa.ASN,
+				uint8(ROA.Prefix.Bits()),
+				ROA.MaxMask,
+				ROA.Prefix.Addr().As4(),
+				ROA.ASN,
 			)
 		} else {
 			pdu = protocol.NewIpv6PrefixPDU(
 				c.version,
 				protocol.Announce,
-				uint8(roa.Prefix.Bits()),
-				roa.MaxMask,
-				roa.Prefix.Addr().As16(),
-				roa.ASN,
+				uint8(ROA.Prefix.Bits()),
+				ROA.MaxMask,
+				ROA.Prefix.Addr().As16(),
+				ROA.ASN,
 			)
 		}
 		if err := pdu.Write(c.writer); err != nil {
@@ -272,25 +272,25 @@ func (c *Client) sendDiffs(add, del []roa) {
 		return
 	}
 
-	for _, roa := range del {
+	for _, ROA := range del {
 		var pdu protocol.PDU
-		if roa.Prefix.Addr().Is4() {
+		if ROA.Prefix.Addr().Is4() {
 			pdu = protocol.NewIpv4PrefixPDU(
 				c.version,
 				protocol.Withdraw,
-				uint8(roa.Prefix.Bits()),
-				roa.MaxMask,
-				roa.Prefix.Addr().As4(),
-				roa.ASN,
+				uint8(ROA.Prefix.Bits()),
+				ROA.MaxMask,
+				ROA.Prefix.Addr().As4(),
+				ROA.ASN,
 			)
 		} else {
 			pdu = protocol.NewIpv6PrefixPDU(
 				c.version,
 				protocol.Withdraw,
-				uint8(roa.Prefix.Bits()),
-				roa.MaxMask,
-				roa.Prefix.Addr().As16(),
-				roa.ASN,
+				uint8(ROA.Prefix.Bits()),
+				ROA.MaxMask,
+				ROA.Prefix.Addr().As16(),
+				ROA.ASN,
 			)
 		}
 		if err := pdu.Write(c.writer); err != nil {
@@ -370,30 +370,30 @@ func (c *Client) sendCacheResponse(session uint16) {
 	c.logger.Info("Cache Response PDU sent successfully")
 }
 
-func (c *Client) sendAllROAS(roas []roa, session uint16, serial uint32) {
+func (c *Client) sendAllROAS(roas []ROA, session uint16, serial uint32) {
 	c.logger.Info("Sending all ROAs to client")
 
 	var total = len(roas)
 	var written = 0
-	for _, roa := range roas {
+	for _, ROA := range roas {
 		var pdu protocol.PDU
-		if roa.Prefix.Addr().Is4() {
+		if ROA.Prefix.Addr().Is4() {
 			pdu = protocol.NewIpv4PrefixPDU(
 				c.version,
 				protocol.Announce,
-				uint8(roa.Prefix.Bits()),
-				roa.MaxMask,
-				roa.Prefix.Addr().As4(),
-				roa.ASN,
+				uint8(ROA.Prefix.Bits()),
+				ROA.MaxMask,
+				ROA.Prefix.Addr().As4(),
+				ROA.ASN,
 			)
 		} else {
 			pdu = protocol.NewIpv6PrefixPDU(
 				c.version,
 				protocol.Announce,
-				uint8(roa.Prefix.Bits()),
-				roa.MaxMask,
-				roa.Prefix.Addr().As16(),
-				roa.ASN,
+				uint8(ROA.Prefix.Bits()),
+				ROA.MaxMask,
+				ROA.Prefix.Addr().As16(),
+				ROA.ASN,
 			)
 		}
 		if err := pdu.Write(c.writer); err != nil {

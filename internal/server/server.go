@@ -64,6 +64,13 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", s.cfg.ListenAddr, err)
 	}
+
+	return s.ServeListener(l)
+}
+
+// ServeListener starts the server using the provided listener.
+func (s *Server) ServeListener(l net.Listener) error {
+	ctx := context.Background()
 	s.listener = l
 	s.logger.Infof("Daemon running with session id %d", s.getSession())
 
@@ -119,6 +126,13 @@ func (s *Server) Stop(timeout time.Duration) error {
 		_ = s.listener.Close()
 	}
 
+	// Close all client connections
+	s.clientsMu.Lock()
+	for _, client := range s.clients {
+		client.Close()
+	}
+	s.clientsMu.Unlock()
+
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -141,4 +155,12 @@ func (s *Server) ListenAddr() string {
 		return s.listener.Addr().String()
 	}
 	return ""
+}
+
+// LoadROAs allows manual injection of ROAs into the cache.
+// This is used for testing.
+func (s *Server) LoadROAs(roas []ROA) {
+	s.lock()
+	s.cache.replaceRoas(filterExpired(roas, time.Now()))
+	s.unlock()
 }

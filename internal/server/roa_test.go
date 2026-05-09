@@ -16,23 +16,23 @@ func mustPrefix(s string) netip.Prefix {
 }
 
 func TestMakeDiff2(t *testing.T) {
-	roa1 := roa{Prefix: mustPrefix("10.0.0.0/24"), ASN: 1, MaxMask: 24}
-	roa2 := roa{Prefix: mustPrefix("10.0.1.0/24"), ASN: 2, MaxMask: 24}
-	roa3 := roa{Prefix: mustPrefix("10.0.2.0/24"), ASN: 3, MaxMask: 24}
+	roa1 := ROA{Prefix: mustPrefix("10.0.0.0/24"), ASN: 1, MaxMask: 24}
+	roa2 := ROA{Prefix: mustPrefix("10.0.1.0/24"), ASN: 2, MaxMask: 24}
+	roa3 := ROA{Prefix: mustPrefix("10.0.2.0/24"), ASN: 3, MaxMask: 24}
 
 	tests := []struct {
 		name     string
-		old      []roa
-		new      []roa
+		old      []ROA
+		new      []ROA
 		serial   uint32
-		wantAdd  []roa
-		wantDel  []roa
+		wantAdd  []ROA
+		wantDel  []ROA
 		wantDiff bool
 	}{
 		{
 			name:     "no diff",
-			old:      []roa{roa1, roa2},
-			new:      []roa{roa1, roa2},
+			old:      []ROA{roa1, roa2},
+			new:      []ROA{roa1, roa2},
 			serial:   10,
 			wantAdd:  nil,
 			wantDel:  nil,
@@ -40,47 +40,47 @@ func TestMakeDiff2(t *testing.T) {
 		},
 		{
 			name:     "add one",
-			old:      []roa{roa1},
-			new:      []roa{roa1, roa2},
+			old:      []ROA{roa1},
+			new:      []ROA{roa1, roa2},
 			serial:   20,
-			wantAdd:  []roa{roa2},
+			wantAdd:  []ROA{roa2},
 			wantDel:  nil,
 			wantDiff: true,
 		},
 		{
 			name:     "delete one",
-			old:      []roa{roa1, roa2},
-			new:      []roa{roa1},
+			old:      []ROA{roa1, roa2},
+			new:      []ROA{roa1},
 			serial:   30,
 			wantAdd:  nil,
-			wantDel:  []roa{roa2},
+			wantDel:  []ROA{roa2},
 			wantDiff: true,
 		},
 		{
 			name:     "add and delete",
-			old:      []roa{roa1, roa2},
-			new:      []roa{roa1, roa3},
+			old:      []ROA{roa1, roa2},
+			new:      []ROA{roa1, roa3},
 			serial:   40,
-			wantAdd:  []roa{roa3},
-			wantDel:  []roa{roa2},
+			wantAdd:  []ROA{roa3},
+			wantDel:  []ROA{roa2},
 			wantDiff: true,
 		},
 		{
 			name:     "empty old, all add",
 			old:      nil,
-			new:      []roa{roa1, roa2},
+			new:      []ROA{roa1, roa2},
 			serial:   50,
-			wantAdd:  []roa{roa1, roa2},
+			wantAdd:  []ROA{roa1, roa2},
 			wantDel:  nil,
 			wantDiff: true,
 		},
 		{
 			name:     "empty new, all delete",
-			old:      []roa{roa1, roa2},
+			old:      []ROA{roa1, roa2},
 			new:      nil,
 			serial:   60,
 			wantAdd:  nil,
-			wantDel:  []roa{roa1, roa2},
+			wantDel:  []ROA{roa1, roa2},
 			wantDiff: true,
 		},
 	}
@@ -134,11 +134,11 @@ func mockKey(prefix string, maxMask uint8, asn uint32) string {
 }
 
 // helper to generate dummy ROAs
-func generateROAs(n int, offset int) []roa {
-	roas := make([]roa, 0, n)
+func generateROAs(n int, offset int) []ROA {
+	roas := make([]ROA, 0, n)
 	for i := 0; i < n; i++ {
 		prefix, _ := netip.ParsePrefix("192.0." + strconv.Itoa((i+offset)%256) + ".0/24")
-		roas = append(roas, roa{
+		roas = append(roas, ROA{
 			Prefix:  prefix,
 			MaxMask: 24,
 			ASN:     64512 + uint32(i),

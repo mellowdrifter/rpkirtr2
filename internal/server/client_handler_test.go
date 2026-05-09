@@ -71,7 +71,7 @@ func TestHandleSerialQueryDiffs(t *testing.T) {
 	// Setup some diffs in the cache
 	client.cache.mu.Lock()
 	client.cache.serial = 11
-	client.cache.diffs.addRoa = []roa{
+	client.cache.diffs.addRoa = []ROA{
 		{
 			ASN:     300,
 			MaxMask: 24,

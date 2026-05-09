@@ -12,35 +12,37 @@ import (
 	"time"
 )
 
-type roa struct {
+type ROA struct {
 	Prefix  netip.Prefix
 	ASN     uint32
 	MaxMask uint8
+	Expires int64 // Unix timestamp; 0 means no expiry information
 }
 
-type Jsonroa struct {
+type JSONROA struct {
 	Prefix string `json:"prefix"`
 	Mask   uint8  `json:"maxLength"`
 	ASN    any    `json:"asn"`
+	Expires int64 `json:"expires"`
 }
 
 type roas struct {
-	Roas []Jsonroa `json:"roas"`
+	Roas []JSONROA `json:"roas"`
 }
 
 type rpkiResponse struct {
 	roas
 }
 
-func (r roa) Key() string {
+func (r ROA) Key() string {
 	return fmt.Sprintf("%s/%d|%d|%d", r.Prefix.Addr().String(), r.Prefix.Bits(), r.MaxMask, r.ASN)
 }
 
 // GetSetOfValidatedROAs returns a slice of ROAs with no duplicates.
 // It only appends if the ROA is valid
-func GetSetOfValidatedROAs(roas []roa) []roa {
-	u := make([]roa, 0, len(roas))
-	m := make(map[roa]struct{})
+func GetSetOfValidatedROAs(roas []ROA) []ROA {
+	u := make([]ROA, 0, len(roas))
+	m := make(map[ROA]struct{})
 	for _, roa := range roas {
 		if _, ok := m[roa]; !ok {
 			m[roa] = struct{}{}
@@ -53,7 +55,7 @@ func GetSetOfValidatedROAs(roas []roa) []roa {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6482#section-3.3
-func (roa *roa) isValid() bool {
+func (roa *ROA) isValid() bool {
 	// MaxLength cannot be zero or negative
 	// MaxMask is a uint8 so cannot be negative
 	if roa.MaxMask == 0 {
@@ -75,9 +77,9 @@ func (roa *roa) isValid() bool {
 	return true
 }
 
-func makeDiff(new, old []roa) diffs {
-	newMap := make(map[string]roa, len(new))
-	oldMap := make(map[string]roa, len(old))
+func makeDiff(new, old []ROA) diffs {
+	newMap := make(map[string]ROA, len(new))
+	oldMap := make(map[string]ROA, len(old))
 
 	for _, r := range new {
 		newMap[r.Key()] = r
@@ -86,7 +88,7 @@ func makeDiff(new, old []roa) diffs {
 		oldMap[r.Key()] = r
 	}
 
-	var addROA, delROA []roa
+	var addROA, delROA []ROA
 
 	for k, r := range newMap {
 		if _, exists := oldMap[k]; !exists {
@@ -108,7 +110,7 @@ func makeDiff(new, old []roa) diffs {
 }
 
 // TODO: Any improvements in JSON 1.25 Go?
-func fetchROAsFromURL(ctx context.Context, url string) ([]roa, error) {
+func fetchROAsFromURL(ctx context.Context, url string) ([]ROA, error) {
 	// Create HTTP request with context for cancellation/timeouts
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -136,26 +138,37 @@ func fetchROAsFromURL(ctx context.Context, url string) ([]roa, error) {
 		return nil, fmt.Errorf("failed to decode json: %w", err)
 	}
 
-	// Convert JSON ROAs to internal roa type
-	roas := make([]roa, 0, len(r.Roas))
+	// Convert JSON ROAs to internal ROA type
+	roas := make([]ROA, 0, len(r.Roas))
 	for _, r := range r.Roas {
 		// Parse prefix string to netip.Prefix
 		prefix, err := netip.ParsePrefix(r.Prefix)
 		if err != nil {
 			return nil, fmt.Errorf("invalid prefix %q: %w", r.Prefix, err)
 		}
-		roas = append(roas, roa{
+		roas = append(roas, ROA{
 			Prefix:  prefix,
 			MaxMask: r.Mask,
 			ASN:     decodeASN(r),
+			Expires: r.Expires,
 		})
 	}
 
 	return roas, nil
 }
 
+func filterExpired(roas []ROA, now time.Time) []ROA {
+	out := make([]ROA, 0, len(roas))
+	for _, r := range roas {
+		if r.Expires == 0 || time.Unix(r.Expires, 0).After(now) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // Some URLs have the AS Number as a number while others as a string.
-func decodeASN(data Jsonroa) uint32 {
+func decodeASN(data JSONROA) uint32 {
 	switch atype := data.ASN.(type) {
 	case string:
 		return asnToUint32(atype)
@@ -176,9 +189,9 @@ func asnToUint32(a string) uint32 {
 	return uint32(n)
 }
 
-func (s *Server) loadROAs(ctx context.Context) ([]roa, error) {
+func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 	var wg sync.WaitGroup
-	roasCh := make(chan []roa, len(s.urls))
+	roasCh := make(chan []ROA, len(s.urls))
 	errsCh := make(chan error, len(s.urls))
 
 	fetch := func(url string) {
@@ -206,7 +219,7 @@ func (s *Server) loadROAs(ctx context.Context) ([]roa, error) {
 		s.logger.Errorf("failed to fetch ROAs from upstream: %v", err)
 	}
 
-	combined := []roa{}
+	combined := []ROA{}
 	for r := range roasCh {
 		combined = append(combined, r...)
 	}
@@ -217,6 +230,7 @@ func (s *Server) loadROAs(ctx context.Context) ([]roa, error) {
 	}
 
 	validRoas := GetSetOfValidatedROAs(combined)
+	filteredRoas := filterExpired(validRoas, time.Now())
 
-	return validRoas, nil
+	return filteredRoas, nil
 }

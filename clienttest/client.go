@@ -1,6 +1,7 @@
 package clienttest
 
 import (
+	"fmt"
 	"net"
 	"time"
 )
@@ -35,5 +36,27 @@ func (c *RTRClient) Receive(maxLen int) ([]byte, error) {
 func (c *RTRClient) Close() {
 	if c.conn != nil {
 		c.conn.Close()
+	}
+}
+
+func (c *RTRClient) CollectPrefixes() ([]ReceivedROA, error) {
+	var out []ReceivedROA
+	for {
+		pdu, err := ReadNextPDU(c.conn)
+		if err != nil {
+			return nil, err
+		}
+		switch pdu.Type {
+		case Ipv4Prefix, Ipv6Prefix:
+			r, err := parsePrefix(pdu)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, r)
+		case EndOfDataType:
+			return out, nil
+		case CacheReset:
+			return nil, fmt.Errorf("received unexpected Cache Reset")
+		}
 	}
 }

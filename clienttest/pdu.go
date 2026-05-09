@@ -9,9 +9,59 @@ import (
 )
 
 const (
-	SerialQuery = 1
-	ResetQuery  = 2
+	SerialNotify  = 0
+	SerialQuery   = 1
+	ResetQuery    = 2
+	CacheResponse = 3
+	Ipv4Prefix    = 4
+	Ipv6Prefix    = 6
+	EndOfDataType = 7
+	CacheReset    = 8
 )
+
+type ReceivedROA struct {
+	Prefix  string
+	ASN     uint32
+	MaxMask uint8
+	Flags   uint8 // 0 = withdraw, 1 = announce
+}
+
+func parsePrefix(pdu *PDU) (ReceivedROA, error) {
+	if pdu.Type == Ipv4Prefix {
+		if len(pdu.Body) < 12 {
+			return ReceivedROA{}, fmt.Errorf("ipv4 prefix body too short")
+		}
+		flags := pdu.Body[0]
+		mask := pdu.Body[1]
+		maxMask := pdu.Body[2]
+		// skip pdu.Body[3] which is zero
+		ip := net.IP(pdu.Body[4:8])
+		asn := binary.BigEndian.Uint32(pdu.Body[8:12])
+		return ReceivedROA{
+			Prefix:  fmt.Sprintf("%s/%d", ip.String(), mask),
+			ASN:     asn,
+			MaxMask: maxMask,
+			Flags:   flags,
+		}, nil
+	} else if pdu.Type == Ipv6Prefix {
+		if len(pdu.Body) < 24 {
+			return ReceivedROA{}, fmt.Errorf("ipv6 prefix body too short")
+		}
+		flags := pdu.Body[0]
+		mask := pdu.Body[1]
+		maxMask := pdu.Body[2]
+		// skip pdu.Body[3] which is zero
+		ip := net.IP(pdu.Body[4:20])
+		asn := binary.BigEndian.Uint32(pdu.Body[20:24])
+		return ReceivedROA{
+			Prefix:  fmt.Sprintf("%s/%d", ip.String(), mask),
+			ASN:     asn,
+			MaxMask: maxMask,
+			Flags:   flags,
+		}, nil
+	}
+	return ReceivedROA{}, fmt.Errorf("not a prefix PDU")
+}
 
 type PDU struct {
 	Version   uint8

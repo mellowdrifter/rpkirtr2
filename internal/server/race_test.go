@@ -16,7 +16,7 @@ func TestCacheRace(t *testing.T) {
 	c := newCache()
 
 	// Initial ROAs
-	c.replaceRoas([]roa{
+	c.replaceRoas([]ROA{
 		{ASN: 100, MaxMask: 24},
 		{ASN: 200, MaxMask: 32},
 	})
@@ -90,7 +90,7 @@ func TestCacheRace(t *testing.T) {
 			default:
 				c.mu.Lock()
 				c.serial++
-				c.roas = append(c.roas, roa{ASN: uint32(i + 1000), MaxMask: 24})
+				c.roas = append(c.roas, ROA{ASN: uint32(i + 1000), MaxMask: 24})
 				c.mu.Unlock()
 				time.Sleep(time.Millisecond)
 			}
