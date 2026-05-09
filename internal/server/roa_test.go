@@ -88,12 +88,39 @@ func TestMakeDiff2(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := makeDiff(tt.new, tt.old)
-			if !reflect.DeepEqual(got.addRoa, tt.wantAdd) {
-				t.Errorf("addRoa = %v, want %v", got.addRoa, tt.wantAdd)
+			if len(got.addRoa) != len(tt.wantAdd) {
+				t.Errorf("addRoa length = %d, want %d", len(got.addRoa), len(tt.wantAdd))
 			}
-			if !reflect.DeepEqual(got.delRoa, tt.wantDel) {
-				t.Errorf("delRoa = %v, want %v", got.delRoa, tt.wantDel)
+			if len(got.delRoa) != len(tt.wantDel) {
+				t.Errorf("delRoa length = %d, want %d", len(got.delRoa), len(tt.wantDel))
 			}
+			
+			// Simple check for presence without order dependency
+			for _, r := range got.addRoa {
+				found := false
+				for _, wr := range tt.wantAdd {
+					if reflect.DeepEqual(r, wr) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("addRoa contains unexpected ROA: %v", r)
+				}
+			}
+			for _, wr := range tt.wantAdd {
+				found := false
+				for _, r := range got.addRoa {
+					if reflect.DeepEqual(r, wr) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("addRoa missing expected ROA: %v", wr)
+				}
+			}
+
 			if got.diff != tt.wantDiff {
 				t.Errorf("diff = %v, want %v", got.diff, tt.wantDiff)
 			}

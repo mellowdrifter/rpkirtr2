@@ -117,6 +117,81 @@ func decipherPDU(data []byte) (PDU, error) {
 			text:    data[12+pduLen+4 : 12+pduLen+4+textLen],
 		}, nil
 
+	case CacheResponse:
+		if len(data) < 8 {
+			return nil, fmt.Errorf("CacheResponsePDU too short: %d bytes", len(data))
+		}
+		return NewCacheResponsePDU(
+			Version(data[0]),
+			binary.BigEndian.Uint16(data[2:4]),
+		), nil
+
+	case EndOfData:
+		if len(data) < 24 {
+			return nil, fmt.Errorf("EndOfDataPDU too short: %d bytes", len(data))
+		}
+		return NewEndOfDataPDU(
+			Version(data[0]),
+			binary.BigEndian.Uint16(data[2:4]),
+			binary.BigEndian.Uint32(data[8:12]),
+			binary.BigEndian.Uint32(data[12:16]),
+			binary.BigEndian.Uint32(data[16:20]),
+			binary.BigEndian.Uint32(data[20:24]),
+		), nil
+
+	case CacheReset:
+		if len(data) < 8 {
+			return nil, fmt.Errorf("CacheResetPDU too short: %d bytes", len(data))
+		}
+		return NewCacheResetPDU(
+			Version(data[0]),
+		), nil
+
+	case RouterKey:
+		if len(data) < 32 {
+			return nil, fmt.Errorf("RouterKeyPDU too short: %d bytes", len(data))
+		}
+		ski := [20]byte{}
+		copy(ski[:], data[8:28])
+		asn := binary.BigEndian.Uint32(data[28:32])
+		return NewRouterKeyPDU(
+			Version(data[0]),
+			binary.BigEndian.Uint16(data[2:4]),
+			ski,
+			asn,
+			data[32:],
+		), nil
+
+	case Ipv4Prefix:
+		if len(data) < 20 {
+			return nil, fmt.Errorf("Ipv4PrefixPDU too short: %d bytes", len(data))
+		}
+		prefix := [4]byte{}
+		copy(prefix[:], data[12:16])
+		return NewIpv4PrefixPDU(
+			Version(data[0]),
+			data[8],
+			data[9],
+			data[10],
+			prefix,
+			binary.BigEndian.Uint32(data[16:20]),
+		), nil
+
+	case Ipv6Prefix:
+		if len(data) < 32 {
+			return nil, fmt.Errorf("Ipv6PrefixPDU too short: %d bytes", len(data))
+		}
+		prefix := [16]byte{}
+		copy(prefix[:], data[12:28])
+		return NewIpv6PrefixPDU(
+			Version(data[0]),
+			data[8],
+			data[9],
+			data[10],
+			prefix,
+			binary.BigEndian.Uint32(data[28:32]),
+		), nil
+
 		// Cache server should only ever receive the above three PDUs.
 	default:
 		return nil, fmt.Errorf("unsupported PDU type: %d", ptype)

@@ -180,6 +180,14 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	serial := pdu.Serial()
 	currentSerial := c.getSerial()
 
+	// RFC 8210 §6.2: If the Session ID in the Serial Query PDU does not match the
+	// current Session ID of the cache, the cache MUST respond with a Cache Reset PDU.
+	if pdu.Session() != c.getSession() {
+		c.logger.Infof("Client session ID %d does not match server session ID %d. Sending cache reset.", pdu.Session(), c.getSession())
+		c.sendCacheReset()
+		return nil
+	}
+
 	// 1. New client or serial 0 -> Reset
 	if serial == 0 {
 		c.logger.Infof("Client requested serial 0, so sending cache reset PDU")

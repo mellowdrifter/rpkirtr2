@@ -103,6 +103,10 @@ func (s *SerialQueryPDU) Version() Version {
 	return s.version
 }
 
+func (s *SerialQueryPDU) Session() uint16 {
+	return s.session
+}
+
 type ResetQueryPDU struct {
 	/*
 		0          8          16         24        31

@@ -48,6 +48,12 @@ func TestSerialQueryRoundTrip(t *testing.T) {
 	require.Equal(t, orig, got)
 }
 
+func TestSerialQuerySession(t *testing.T) {
+	session := uint16(1234)
+	pdu := NewSerialQueryPDU(1, session, 42)
+	require.Equal(t, session, pdu.Session())
+}
+
 func TestDecipherPDU(t *testing.T) {
 	tests := []struct {
 		name     string
