@@ -33,3 +33,4 @@ go.work.sum
 go.sum
 bin/rpkirtr2
 internal/protocol/testdata/fuzz/*
+docs/*
