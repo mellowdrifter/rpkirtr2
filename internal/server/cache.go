@@ -51,6 +51,8 @@ func (c *cache) incrementSerial() {
 }
 
 func (c *cache) isDiffs() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return (len(c.diffs.addRoa) > 0 || len(c.diffs.delRoa) > 0)
 }
 
@@ -58,6 +60,26 @@ func (c *cache) getDiffs() (addRoa, delRoa []roa) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.diffs.addRoa, c.diffs.delRoa
+}
+
+type cacheState struct {
+	serial  uint32
+	session uint16
+	addRoa  []roa
+	delRoa  []roa
+	roas    []roa
+}
+
+func (c *cache) getState() cacheState {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cacheState{
+		serial:  c.serial,
+		session: c.session,
+		addRoa:  c.diffs.addRoa,
+		delRoa:  c.diffs.delRoa,
+		roas:    c.roas,
+	}
 }
 
 func (c *cache) getRoas() []roa {
@@ -134,9 +156,13 @@ func (s *Server) runlock() {
 }
 
 func (s *Server) getSerial() uint32 {
+	s.cache.mu.RLock()
+	defer s.cache.mu.RUnlock()
 	return s.cache.serial
 }
 
 func (s *Server) getSession() uint16 {
+	s.cache.mu.RLock()
+	defer s.cache.mu.RUnlock()
 	return s.cache.session
 }

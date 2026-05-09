@@ -115,12 +115,13 @@ func (c *Client) Handle() error {
 			c.sendAndCloseError("VERSION_MISMATCH", protocol.UnexpectedVersion)
 			return errors.New("version mismatch")
 		}
-		switch pdu.Type() {
+	switch pdu.Type() {
 		case protocol.ResetQuery:
 			c.logger.Info("Received Reset Query PDU")
 			c.logger.Debugf("Reset Query PDU: %+v", pdu)
-			c.sendCacheResponse()
-			c.sendAllROAS()
+			state := c.cache.getState()
+			c.sendCacheResponse(state.session)
+			c.sendAllROAS(state.roas, state.session, state.serial)
 		case protocol.SerialQuery:
 			c.logger.Info("Received Serial Query PDU")
 			sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
@@ -151,8 +152,9 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 	case protocol.ResetQuery:
 		c.logger.Info("Received Reset Query PDU")
 		c.logger.Debugf("Reset Query PDU: %+v", pdu)
-		c.sendCacheResponse()
-		c.sendAllROAS()
+		state := c.cache.getState()
+		c.sendCacheResponse(state.session)
+		c.sendAllROAS(state.roas, state.session, state.serial)
 	case protocol.SerialQuery:
 		c.logger.Info("Received Serial Query PDU")
 		sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
@@ -178,12 +180,12 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	c.logger.Info("Handling Serial Query PDU")
 	serial := pdu.Serial()
-	currentSerial := c.getSerial()
+	state := c.cache.getState()
 
 	// RFC 8210 §6.2: If the Session ID in the Serial Query PDU does not match the
 	// current Session ID of the cache, the cache MUST respond with a Cache Reset PDU.
-	if pdu.Session() != c.getSession() {
-		c.logger.Infof("Client session ID %d does not match server session ID %d. Sending cache reset.", pdu.Session(), c.getSession())
+	if pdu.Session() != state.session {
+		c.logger.Infof("Client session ID %d does not match server session ID %d. Sending cache reset.", pdu.Session(), state.session)
 		c.sendCacheReset()
 		return nil
 	}
@@ -196,45 +198,41 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	}
 
 	// 2. Cache can only deal with the current or previous serial number
-	if serial != currentSerial && serial != currentSerial-1 {
-		c.logger.Infof("Client requested serial %d, current serial is %d. Sending cache reset.", serial, currentSerial)
+	if serial != state.serial && serial != state.serial-1 {
+		c.logger.Infof("Client requested serial %d, current serial is %d. Sending cache reset.", serial, state.serial)
 		c.sendCacheReset()
 		return nil
 	}
 
 	// 3. If the serials match, send a Cache Response PDU followed by End of Data
-	if serial == currentSerial {
+	if serial == state.serial {
 		c.logger.Infof("Client requested current serial %d. Client is already up to date.", serial)
-		c.sendCacheResponse()
-		c.sendEndOfDataPDU(c.getSession(), currentSerial)
+		c.sendCacheResponse(state.session)
+		c.sendEndOfDataPDU(state.session, state.serial)
 		return nil
 	}
 
 	// 4. If the serial is one less than the current, and there are diffs, send the diffs
-	if c.cache.isDiffs() {
-		c.logger.Infof("Client requested serial %d, current serial is %d. Sending diffs.", serial, currentSerial)
-		c.sendCacheResponse()
-		c.sendDiffs()
-		c.sendEndOfDataPDU(c.getSession(), currentSerial)
+	if len(state.addRoa) > 0 || len(state.delRoa) > 0 {
+		c.logger.Infof("Client requested serial %d, current serial is %d. Sending diffs.", serial, state.serial)
+		c.sendCacheResponse(state.session)
+		c.sendDiffs(state.addRoa, state.delRoa)
+		c.sendEndOfDataPDU(state.session, state.serial)
 		return nil
 	}
 
 	// 5. If the serial is one less than current but NO diffs exist, still send Cache Response + End of Data
-	c.logger.Infof("Client requested serial %d, current serial is %d. No diffs found.", serial, currentSerial)
-	c.sendCacheResponse()
-	c.sendEndOfDataPDU(c.getSession(), currentSerial)
+	c.logger.Infof("Client requested serial %d, current serial is %d. No diffs found.", serial, state.serial)
+	c.sendCacheResponse(state.session)
+	c.sendEndOfDataPDU(state.session, state.serial)
 
 	return nil
 }
 
-func (c *Client) sendDiffs() {
-	c.rlock()
-	defer c.runlock()
-
+func (c *Client) sendDiffs(add, del []roa) {
 	c.logger.Info("Sending diffs to client")
 
 	// Send all ROAs that were added
-	add, del := c.cache.getDiffs()
 	for _, roa := range add {
 		var pdu protocol.PDU
 		if roa.Prefix.Addr().Is4() {
@@ -320,9 +318,6 @@ func (c *Client) sendCacheReset() {
 }
 
 func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
-	c.rlock()
-	defer c.runlock()
-
 	c.logger.Info("Sending End of Data PDU to client")
 	// TODO: Use the actual values from the client if they are set
 	epdu := protocol.NewEndOfDataPDU(
@@ -350,12 +345,9 @@ func (c *Client) sendEndOfDataPDU(session uint16, serial uint32) {
 	c.logger.Info("End of Data PDU sent successfully")
 }
 
-func (c *Client) sendCacheResponse() {
-	c.rlock()
-	defer c.runlock()
-
+func (c *Client) sendCacheResponse(session uint16) {
 	c.logger.Info("Sending Cache Response PDU to client")
-	cpdu := protocol.NewCacheResponsePDU(c.getVersion(), c.getSession())
+	cpdu := protocol.NewCacheResponsePDU(c.getVersion(), session)
 	if err := cpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Response PDU: %v", err)
 		c.sendAndCloseError("WRITE_ERROR", protocol.InternalError)
@@ -372,9 +364,8 @@ func (c *Client) sendCacheResponse() {
 	c.logger.Info("Cache Response PDU sent successfully")
 }
 
-func (c *Client) sendAllROAS() {
+func (c *Client) sendAllROAS(roas []roa, session uint16, serial uint32) {
 	c.logger.Info("Sending all ROAs to client")
-	roas := c.cache.getRoas()
 
 	var total = len(roas)
 	var written = 0
@@ -416,7 +407,7 @@ func (c *Client) sendAllROAS() {
 	}
 
 	c.logger.Infof("Sent all ROAs to client %s", c.id)
-	c.sendEndOfDataPDU(c.getSession(), c.getSerial())
+	c.sendEndOfDataPDU(session, serial)
 }
 
 // sendAndCloseError sends a protocol error PDU and closes the connection.
@@ -478,10 +469,14 @@ func (c *Client) notify() {
 }
 
 func (c *Client) getSerial() uint32 {
+	c.rlock()
+	defer c.runlock()
 	return c.cache.serial
 }
 
 func (c *Client) getSession() uint16 {
+	c.rlock()
+	defer c.runlock()
 	return c.cache.session
 }
 
