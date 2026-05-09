@@ -414,10 +414,12 @@ func (c *Client) sendAllROAS() {
 // sendAndCloseError sends a protocol error PDU and closes the connection.
 func (c *Client) sendAndCloseError(msg string, code protocol.ErrorCode) {
 	// TODO: Figure out error code mapping
-	// Also fix the version field
 	// TODO: There should be two error functions, one that takes in PDUs and another that doesn't
-	// Adding bytes of msg as a temp holder
-	pdu := protocol.NewErrorReportPDU(2, code, []byte(msg), msg)
+	version := c.version
+	if version == 0 {
+		version = 2 // RFC 8210 requires highest supported version if negotiation fails
+	}
+	pdu := protocol.NewErrorReportPDU(version, code, []byte(msg), msg)
 	pdu.Write(c.writer)
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Warnf("Failed to send error PDU: %v", err)

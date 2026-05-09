@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -167,7 +168,7 @@ func decodeASN(data Jsonroa) uint32 {
 // Some json VRPs contain ASXXX instead of just XXX as the ASN
 // TODO: Use a regex to remove letter instead of assuming its the first two
 func asnToUint32(a string) uint32 {
-	n, err := strconv.Atoi(a[2:])
+	n, err := strconv.Atoi(strings.TrimLeft(a, "ASas"))
 	if err != nil {
 		return 0
 	}
@@ -200,13 +201,19 @@ func (s *Server) loadROAs(ctx context.Context) ([]roa, error) {
 	close(roasCh)
 	close(errsCh)
 
-	if len(errsCh) > 0 {
-		return nil, <-errsCh
+	// Log any errors that occurred
+	for err := range errsCh {
+		s.logger.Errorf("failed to fetch ROAs from upstream: %v", err)
 	}
 
 	combined := []roa{}
 	for r := range roasCh {
 		combined = append(combined, r...)
+	}
+
+	// If we have no ROAs but we did have URLs configured, something went wrong.
+	if len(combined) == 0 && len(s.urls) > 0 {
+		return nil, fmt.Errorf("failed to fetch ROAs from any configured URL")
 	}
 
 	validRoas := GetSetOfValidatedROAs(combined)
