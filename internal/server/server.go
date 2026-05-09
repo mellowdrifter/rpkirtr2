@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,9 +19,10 @@ type Server struct {
 	logger   *zap.SugaredLogger
 	cfg      *config.Config
 
-	clients map[string]*Client
-	urls    []string
-	cache   *cache
+	clients    map[string]*Client
+	urls       []string
+	cache      *cache
+	httpClient *http.Client
 
 	// sync types next
 	wg        sync.WaitGroup
@@ -43,6 +45,9 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		urls:    cfg.RPKIURLs,
 		cache:   newCache(),
 		wg:      sync.WaitGroup{},
+		httpClient: &http.Client{
+			Timeout: 1 * time.Minute,
+		},
 	}
 }
 

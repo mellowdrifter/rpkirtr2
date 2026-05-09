@@ -114,19 +114,14 @@ func makeDiff(new, old []ROA) diffResult {
 }
 
 // TODO: Any improvements in JSON 1.25 Go?
-func fetchROAsFromURL(ctx context.Context, url string) ([]ROA, error) {
+func (s *Server) fetchROAsFromURL(ctx context.Context, url string) ([]ROA, error) {
 	// Create HTTP request with context for cancellation/timeouts
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Use a client with timeout
-	client := http.Client{
-		Timeout: 1 * time.Minute,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request error: %w", err)
 	}
@@ -201,7 +196,7 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 	fetch := func(url string) {
 		defer wg.Done()
 		s.logger.Debugf("Fetching ROAs from %s", url)
-		roas, err := fetchROAsFromURL(ctx, url)
+		roas, err := s.fetchROAsFromURL(ctx, url)
 		if err != nil {
 			errsCh <- err
 			return
