@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mellowdrifter/rpkirtr2/internal/protocol"
 
@@ -18,7 +19,7 @@ const (
 	DefaultRefreshInterval = uint32(3600) // 1 - 86400
 	DefaultRetryInterval   = uint32(600)  // 1 - 7200
 	DefaultExpireInterval  = uint32(7200) // 600 - 172800
-
+	DefaultReadTimeout     = 2 * time.Minute
 )
 
 type Client struct {
@@ -37,6 +38,7 @@ type cfg struct {
 	refreshInterval uint32
 	retryInterval   uint32
 	expireInterval  uint32
+	readTimeout     time.Duration
 }
 
 // NewClient wraps a new connection into a Client instance.
@@ -65,6 +67,7 @@ func newCfg() *cfg {
 		refreshInterval: DefaultRefreshInterval,
 		retryInterval:   DefaultRetryInterval,
 		expireInterval:  DefaultExpireInterval,
+		readTimeout:     DefaultReadTimeout,
 	}
 }
 
@@ -75,6 +78,7 @@ func (c *Client) Handle() error {
 	c.logger.Info("Client session started")
 
 	// Step 1: Version negotiation
+	c.conn.SetReadDeadline(time.Now().Add(c.cfg.readTimeout))
 	ver, err := protocol.Negotiate(c.reader)
 	if err != nil {
 		c.logger.Warnf("Negotiation failed: %v", err)
@@ -86,6 +90,7 @@ func (c *Client) Handle() error {
 	c.version = ver
 
 	// Step 2: Client MUST send either a Reset Query or a Serial Query PDU
+	c.conn.SetReadDeadline(time.Now().Add(c.cfg.readTimeout))
 	pdu, err := protocol.GetPDU(c.reader)
 	if err != nil {
 		c.logger.Warnf("Failed to read initial PDU: %v", err)
@@ -100,6 +105,7 @@ func (c *Client) Handle() error {
 
 	// Step 3: Main read-process loop
 	for {
+		c.conn.SetReadDeadline(time.Now().Add(c.cfg.readTimeout))
 		pdu, err := protocol.GetPDU(c.reader)
 		if err != nil {
 			if isDisconnectError(err) {
