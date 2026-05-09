@@ -97,9 +97,8 @@ func (c *Client) Handle() error {
 		c.sendAndCloseError("INVALID_REQUEST", protocol.InvalidRequest)
 		return err
 	}
-	if err := c.sendInitialResponse(pdu); err != nil {
-		c.logger.Warnf("Failed to send initial messages: %v", err)
-		c.sendAndCloseError("INIT_FAILED", protocol.InternalError)
+	if err := c.dispatchPDU(pdu); err != nil {
+		c.logger.Warnf("Failed to dispatch initial PDU: %v", err)
 		return err
 	}
 
@@ -116,43 +115,18 @@ func (c *Client) Handle() error {
 			c.sendAndCloseError("READ_ERROR", protocol.CorruptData)
 			return err
 		}
-		if c.version != pdu.Version() {
-			c.logger.Warnf("Version mismatch: expected %d, got %d", c.version, pdu.Version())
-			c.sendAndCloseError("VERSION_MISMATCH", protocol.UnexpectedVersion)
-			return errors.New("version mismatch")
-		}
-	switch pdu.Type() {
-		case protocol.ResetQuery:
-			c.logger.Info("Received Reset Query PDU")
-			c.logger.Debugf("Reset Query PDU: %+v", pdu)
-			state := c.cache.getState()
-			c.sendCacheResponse(state.session)
-			c.sendAllROAS(state.roas, state.session, state.serial)
-		case protocol.SerialQuery:
-			c.logger.Info("Received Serial Query PDU")
-			sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
-			if !ok {
-				c.logger.Warnf("Failed to cast PDU to *SerialQueryPDU")
-				c.sendAndCloseError("SERIAL_QUERY_CAST_ERROR", protocol.InternalError)
-				return errors.New("failed to cast PDU to *SerialQueryPDU")
-			}
-			if err := c.handleSerialQuery(sqPDU); err != nil {
-				c.logger.Warnf("Failed to handle Serial Query PDU: %v", err)
-				c.sendAndCloseError("SERIAL_QUERY_ERROR", protocol.InternalError)
-				return err
-			}
-			// TODO: Handle errors and whatever other PDUs the client might send
-		default:
-			c.logger.Warnf("Unexpected PDU type: %s", pdu.Type())
-			c.logger.Infof("Going to end the session")
-			c.Close()
-			return nil
+		if err := c.dispatchPDU(pdu); err != nil {
+			return err
 		}
 	}
 }
 
-// TODO: A lot of overlap with the main loop here...
-func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
+func (c *Client) dispatchPDU(pdu protocol.PDU) error {
+	if c.version != pdu.Version() {
+		c.logger.Warnf("Version mismatch: expected %d, got %d", c.version, pdu.Version())
+		c.sendAndCloseError("VERSION_MISMATCH", protocol.UnexpectedVersion)
+		return errors.New("version mismatch")
+	}
 
 	switch pdu.Type() {
 	case protocol.ResetQuery:
@@ -183,6 +157,7 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 	return nil
 }
 
+
 func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	c.logger.Info("Handling Serial Query PDU")
 	serial := pdu.Serial()
@@ -203,33 +178,20 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 		return nil
 	}
 
-	// 2. Cache can only deal with the current or previous serial number
-	if serial != state.serial && serial != state.serial-1 {
-		c.logger.Infof("Client requested serial %d, current serial is %d. Sending cache reset.", serial, state.serial)
+	// 2. Try to get diffs from the history
+	addRoa, delRoa, found := c.cache.getDiffsFrom(serial)
+	if !found {
+		c.logger.Infof("Client requested serial %d, current serial is %d. Serial too old or unknown. Sending cache reset.", serial, state.serial)
 		c.sendCacheReset()
 		return nil
 	}
 
-	// 3. If the serials match, send a Cache Response PDU followed by End of Data
-	if serial == state.serial {
-		c.logger.Infof("Client requested current serial %d. Client is already up to date.", serial)
-		c.sendCacheResponse(state.session)
-		c.sendEndOfDataPDU(state.session, state.serial)
-		return nil
-	}
-
-	// 4. If the serial is one less than the current, and there are diffs, send the diffs
-	if len(state.addRoa) > 0 || len(state.delRoa) > 0 {
-		c.logger.Infof("Client requested serial %d, current serial is %d. Sending diffs.", serial, state.serial)
-		c.sendCacheResponse(state.session)
-		c.sendDiffs(state.addRoa, state.delRoa)
-		c.sendEndOfDataPDU(state.session, state.serial)
-		return nil
-	}
-
-	// 5. If the serial is one less than current but NO diffs exist, still send Cache Response + End of Data
-	c.logger.Infof("Client requested serial %d, current serial is %d. No diffs found.", serial, state.serial)
+	// 3. Send diffs if found
+	c.logger.Infof("Client requested serial %d, current serial is %d. Sending %d additions and %d deletions.", serial, state.serial, len(addRoa), len(delRoa))
 	c.sendCacheResponse(state.session)
+	if len(addRoa) > 0 || len(delRoa) > 0 {
+		c.sendDiffs(addRoa, delRoa)
+	}
 	c.sendEndOfDataPDU(state.session, state.serial)
 
 	return nil

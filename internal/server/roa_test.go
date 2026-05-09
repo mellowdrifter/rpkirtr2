@@ -121,8 +121,9 @@ func TestMakeDiff2(t *testing.T) {
 				}
 			}
 
-			if got.diff != tt.wantDiff {
-				t.Errorf("diff = %v, want %v", got.diff, tt.wantDiff)
+			isDiff := len(got.addRoa) > 0 || len(got.delRoa) > 0
+			if isDiff != tt.wantDiff {
+				t.Errorf("diff = %v, want %v", isDiff, tt.wantDiff)
 			}
 		})
 	}

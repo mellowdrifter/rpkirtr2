@@ -77,7 +77,12 @@ func (roa *ROA) isValid() bool {
 	return true
 }
 
-func makeDiff(new, old []ROA) diffs {
+type diffResult struct {
+	addRoa []ROA
+	delRoa []ROA
+}
+
+func makeDiff(new, old []ROA) diffResult {
 	newMap := make(map[string]ROA, len(new))
 	oldMap := make(map[string]ROA, len(old))
 
@@ -102,10 +107,9 @@ func makeDiff(new, old []ROA) diffs {
 		}
 	}
 
-	return diffs{
+	return diffResult{
 		addRoa: addROA,
 		delRoa: delROA,
-		diff:   len(addROA) > 0 || len(delROA) > 0,
 	}
 }
 

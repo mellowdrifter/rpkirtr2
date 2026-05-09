@@ -6,24 +6,27 @@ import (
 	"time"
 )
 
+const maxHistory = 10
+
 type cache struct {
 	mu sync.RWMutex
 	//TODO: Why not just store the ROAs as prefix PDUs?
 	roas    []ROA
-	diffs   diffs
+	history []diffRecord
 	serial  uint32
 	session uint16
 }
 
-type diffs struct {
-	delRoa []ROA
-	addRoa []ROA
-	diff   bool
+type diffRecord struct {
+	from uint32
+	to   uint32
+	add  []ROA
+	del  []ROA
 }
 
 func newCache() *cache {
 	return &cache{
-		diffs:   diffs{},
+		history: make([]diffRecord, 0, maxHistory),
 		serial:  1,
 		session: uint16(time.Now().Unix() & 0xFFFF),
 	}
@@ -35,9 +38,16 @@ func (c *cache) replaceRoas(roas []ROA) {
 
 func (c *cache) updateDiffs(roas, addRoa, delRoa []ROA) {
 	c.roas = roas
-	c.diffs.addRoa = addRoa
-	c.diffs.delRoa = delRoa
-	c.diffs.diff = (len(addRoa) > 0 || len(delRoa) > 0)
+	newDiff := diffRecord{
+		from: c.serial,
+		to:   c.serial + 1,
+		add:  addRoa,
+		del:  delRoa,
+	}
+	c.history = append(c.history, newDiff)
+	if len(c.history) > maxHistory {
+		c.history = c.history[1:]
+	}
 }
 
 func (c *cache) count() int {
@@ -50,23 +60,41 @@ func (c *cache) incrementSerial() {
 	c.serial += 1
 }
 
-func (c *cache) isDiffs() bool {
+func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return (len(c.diffs.addRoa) > 0 || len(c.diffs.delRoa) > 0)
+
+	if serial == c.serial {
+		return nil, nil, true
+	}
+
+	// Find the sequence of diffs starting from 'serial'
+	var startIdx = -1
+	for i, d := range c.history {
+		if d.from == serial {
+			startIdx = i
+			break
+		}
+	}
+
+	if startIdx == -1 {
+		return nil, nil, false
+	}
+
+	// Aggregate all diffs from startIdx to the end
+	var allAdd, allDel []ROA
+	for i := startIdx; i < len(c.history); i++ {
+		allAdd = append(allAdd, c.history[i].add...)
+		allDel = append(allDel, c.history[i].del...)
+	}
+
+	return allAdd, allDel, true
 }
 
-func (c *cache) getDiffs() (addRoa, delRoa []ROA) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.diffs.addRoa, c.diffs.delRoa
-}
 
 type cacheState struct {
 	serial  uint32
 	session uint16
-	addRoa  []ROA
-	delRoa  []ROA
 	roas    []ROA
 }
 
@@ -76,8 +104,6 @@ func (c *cache) getState() cacheState {
 	return cacheState{
 		serial:  c.serial,
 		session: c.session,
-		addRoa:  c.diffs.addRoa,
-		delRoa:  c.diffs.delRoa,
 		roas:    c.roas,
 	}
 }
@@ -128,7 +154,7 @@ func (s *Server) updateCache(newROAs []ROA) {
 	s.rlock()
 	diff := makeDiff(newROAs, s.cache.roas)
 	s.runlock()
-	if diff.diff {
+	if len(diff.addRoa) > 0 || len(diff.delRoa) > 0 {
 		s.logger.Debugf("The following ROAs were added: %v", diff.addRoa)
 		s.logger.Debugf("The following ROAs were deleted: %v", diff.delRoa)
 		s.lock()
@@ -139,6 +165,12 @@ func (s *Server) updateCache(newROAs []ROA) {
 	} else {
 		s.logger.Debugf("no diffs in ROAs. New ROA length is %d", len(newROAs))
 	}
+}
+
+// UpdateROAs manually triggers a cache update with the provided ROAs,
+// generating diffs and incrementing the serial number. This is primarily for testing.
+func (s *Server) UpdateROAs(roas []ROA) {
+	s.updateCache(roas)
 }
 
 func (s *Server) notifyClients() {

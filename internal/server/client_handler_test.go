@@ -70,14 +70,15 @@ func TestHandleSerialQueryDiffs(t *testing.T) {
 
 	// Setup some diffs in the cache
 	client.cache.mu.Lock()
-	client.cache.serial = 11
-	client.cache.diffs.addRoa = []ROA{
+	addRoa := []ROA{
 		{
 			ASN:     300,
 			MaxMask: 24,
 			Prefix:  netip.MustParsePrefix("1.1.1.0/24"),
 		},
 	}
+	client.cache.updateDiffs(client.cache.roas, addRoa, nil)
+	client.cache.serial = 11
 	client.cache.mu.Unlock()
 
 	// Client requests serial 10 (current is 11)
