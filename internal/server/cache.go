@@ -11,10 +11,11 @@ const maxHistory = 10
 type cache struct {
 	mu sync.RWMutex
 	//TODO: Why not just store the ROAs as prefix PDUs?
-	roas    []ROA
-	history []diffRecord
-	serial  uint32
-	session uint16
+	roas       []ROA
+	history    []diffRecord
+	serial     uint32
+	session    uint16
+	lastUpdate time.Time
 }
 
 type diffRecord struct {
@@ -93,18 +94,20 @@ func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, bool) {
 
 
 type cacheState struct {
-	serial  uint32
-	session uint16
-	roas    []ROA
+	serial     uint32
+	session    uint16
+	roas       []ROA
+	lastUpdate time.Time
 }
 
 func (c *cache) getState() cacheState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return cacheState{
-		serial:  c.serial,
-		session: c.session,
-		roas:    c.roas,
+		serial:     c.serial,
+		session:    c.session,
+		roas:       c.roas,
+		lastUpdate: c.lastUpdate,
 	}
 }
 
@@ -160,6 +163,7 @@ func (s *Server) updateCache(newROAs []ROA) {
 		s.lock()
 		s.cache.updateDiffs(newROAs, diff.addRoa, diff.delRoa)
 		s.cache.incrementSerial()
+		s.cache.lastUpdate = time.Now()
 		s.unlock()
 		s.notifyClients()
 	} else {

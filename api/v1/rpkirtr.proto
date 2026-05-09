@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package rpkirtr.v1;
+
+option go_package = "github.com/mellowdrifter/rpkirtr2/api/v1;rpkirtripb";
+
+service RPKIRTRService {
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+message GetStatsRequest {}
+
+message GetStatsResponse {
+  uint32 roa_count = 1;
+  uint32 client_count = 2;
+  uint32 serial = 3;
+  int64 last_update = 4;
+  repeated UpstreamStatus upstreams = 5;
+}
+
+message UpstreamStatus {
+  string url = 1;
+  bool last_fetch_success = 2;
+  int64 last_fetch_time = 3;
+  string error_message = 4;
+}

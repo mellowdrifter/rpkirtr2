@@ -34,3 +34,4 @@ go.sum
 bin/rpkirtr2
 internal/protocol/testdata/fuzz/*
 docs/*
+api/v1/*.go

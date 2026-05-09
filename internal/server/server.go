@@ -9,8 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mellowdrifter/rpkirtr2/api/v1"
 	"github.com/mellowdrifter/rpkirtr2/internal/config"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 )
 
 type Server struct {
@@ -30,6 +32,16 @@ type Server struct {
 
 	// smaller fields last
 	shuttingDown atomic.Bool
+	grpcServer   *grpc.Server
+
+	upstreamsMu sync.Mutex
+	upstreams   map[string]*UpstreamStatus
+}
+
+type UpstreamStatus struct {
+	LastFetchSuccess bool
+	LastFetchTime    time.Time
+	ErrorMessage     string
 }
 
 const (
@@ -48,6 +60,7 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		httpClient: &http.Client{
 			Timeout: 1 * time.Minute,
 		},
+		upstreams: make(map[string]*UpstreamStatus),
 	}
 }
 
@@ -69,6 +82,21 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", s.cfg.ListenAddr, err)
 	}
+
+	// Start gRPC server
+	grpcListener, err := net.Listen("tcp", s.cfg.GRPCAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on gRPC address %s: %w", s.cfg.GRPCAddr, err)
+	}
+	s.grpcServer = grpc.NewServer()
+	rpkirtripb.RegisterRPKIRTRServiceServer(s.grpcServer, &grpcServer{srv: s})
+
+	go func() {
+		s.logger.Infof("gRPC Stats API listening on %s", s.cfg.GRPCAddr)
+		if err := s.grpcServer.Serve(grpcListener); err != nil && !s.shuttingDown.Load() {
+			s.logger.Errorf("gRPC server error: %v", err)
+		}
+	}()
 
 	return s.ServeListener(l)
 }
@@ -129,6 +157,11 @@ func (s *Server) Stop(timeout time.Duration) error {
 	s.logger.Info("Shutting down listener...")
 	if s.listener != nil {
 		_ = s.listener.Close()
+	}
+
+	if s.grpcServer != nil {
+		s.logger.Info("Stopping gRPC server...")
+		s.grpcServer.GracefulStop()
 	}
 
 	// Close all client connections

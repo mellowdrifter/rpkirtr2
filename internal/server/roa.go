@@ -197,12 +197,25 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 		defer wg.Done()
 		s.logger.Debugf("Fetching ROAs from %s", url)
 		roas, err := s.fetchROAsFromURL(ctx, url)
-		if err != nil {
-			errsCh <- err
-			return
+		
+		s.upstreamsMu.Lock()
+		stats := &UpstreamStatus{
+			LastFetchTime: time.Now(),
 		}
-		roasCh <- roas
-		s.logger.Debugf("Roas retrieved from %s", url)
+		if err != nil {
+			stats.LastFetchSuccess = false
+			stats.ErrorMessage = err.Error()
+			errsCh <- err
+		} else {
+			stats.LastFetchSuccess = true
+			roasCh <- roas
+		}
+		s.upstreams[url] = stats
+		s.upstreamsMu.Unlock()
+		
+		if err == nil {
+			s.logger.Debugf("Roas retrieved from %s", url)
+		}
 	}
 
 	wg.Add(len(s.urls))
