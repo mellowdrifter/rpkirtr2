@@ -177,39 +177,46 @@ func (c *Client) sendInitialResponse(pdu protocol.PDU) error {
 
 func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 	c.logger.Info("Handling Serial Query PDU")
+	serial := pdu.Serial()
+	currentSerial := c.getSerial()
 
-	// If the client sends nil, it's new and therefore just send a reset so it'll ask for everything
-	if pdu.Serial() == 0 {
+	// 1. New client or serial 0 -> Reset
+	if serial == 0 {
 		c.logger.Infof("Client requested serial 0, so sending cache reset PDU")
 		c.sendCacheReset()
 		return nil
 	}
 
-	// Cache can only deal with the current or previous serial number
-	if pdu.Serial() != c.getSerial() && pdu.Serial() != c.getSerial()-1 {
-		c.logger.Infof("Client requested serial %d, current serial is %d", pdu.Serial(), c.getSerial())
-		// Send a reset to the client, and it'll then request the entire cache
+	// 2. Cache can only deal with the current or previous serial number
+	if serial != currentSerial && serial != currentSerial-1 {
+		c.logger.Infof("Client requested serial %d, current serial is %d. Sending cache reset.", serial, currentSerial)
 		c.sendCacheReset()
 		return nil
 	}
 
-	// If the serials match, send a Cache Response PDU
-	if pdu.Serial() == c.getSerial() {
-		c.logger.Infof("Client requested current serial %d", pdu.Serial())
+	// 3. If the serials match, send a Cache Response PDU followed by End of Data
+	if serial == currentSerial {
+		c.logger.Infof("Client requested current serial %d. Client is already up to date.", serial)
 		c.sendCacheResponse()
+		c.sendEndOfDataPDU(c.getSession(), currentSerial)
+		return nil
 	}
 
-	// If the serial is one less than the current, and there are diffs, send the diffs
-	if pdu.Serial() == c.getSerial()-1 && c.cache.isDiffs() {
+	// 4. If the serial is one less than the current, and there are diffs, send the diffs
+	if c.cache.isDiffs() {
+		c.logger.Infof("Client requested serial %d, current serial is %d. Sending diffs.", serial, currentSerial)
 		c.sendCacheResponse()
 		c.sendDiffs()
+		c.sendEndOfDataPDU(c.getSession(), currentSerial)
+		return nil
 	}
 
-	// Notify the client of the current serial number
-	c.sendEndOfDataPDU(c.getSession(), c.getSerial())
+	// 5. If the serial is one less than current but NO diffs exist, still send Cache Response + End of Data
+	c.logger.Infof("Client requested serial %d, current serial is %d. No diffs found.", serial, currentSerial)
+	c.sendCacheResponse()
+	c.sendEndOfDataPDU(c.getSession(), currentSerial)
 
 	return nil
-
 }
 
 func (c *Client) sendDiffs() {
