@@ -3,7 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/mellowdrifter/rpkirtr2)](https://goreportcard.com/report/github.com/mellowdrifter/rpkirtr2)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-An advanced, high-performance RPKI-to-Router (RTR) server written in Go, fully implementing RTR Version 2 (`draft-ietf-sidrops-8210bis`).
+An advanced, high-performance RPKI-to-Router (RTR) server written in Go, fully implementing RTR Version 2 ([draft-ietf-sidrops-8210bis](https://datatracker.ietf.org/doc/draft-ietf-sidrops-8210bis/)).
 
 `rpkirtr2` is built to seamlessly deliver Resource Public Key Infrastructure (RPKI) validated prefix origin data, router keys, and ASPA to BGP daemons for Route Origin Validation (ROV). Designed for modern network architectures, it efficiently handles full internet routing tables while maintaining a strict, minimal resource footprint.
 
