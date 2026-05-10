@@ -138,10 +138,11 @@ func (c *cache) getRoas() []ROA {
 
 func (s *Server) periodicROAUpdater(ctx context.Context) {
 	defer s.wg.Done()
-	ticker := time.NewTicker(refreshROA)
-	if s.cfg.LogLevel == "debug" {
-		ticker = time.NewTicker(1 * time.Minute)
+	if s.cfg.RefreshInterval == 0 {
+		<-ctx.Done()
+		return
 	}
+	ticker := time.NewTicker(time.Duration(s.cfg.RefreshInterval) * time.Second)
 	defer ticker.Stop()
 
 	for {

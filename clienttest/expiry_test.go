@@ -38,7 +38,7 @@ func TestExpiredROAsNotServedOnReset(t *testing.T) {
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
 
-	received, err := client.CollectPrefixes()
+	received, _, err := client.CollectPrefixes()
 	require.NoError(t, err)
 
 	prefixes := make(map[string]struct{})
@@ -76,7 +76,7 @@ func TestExpiredROAWithdrawnOnSerialQuery(t *testing.T) {
 	sessionID := resp.SessionID
 
 	// Consume prefixes and EndOfData
-	received, err := client.CollectPrefixes()
+	received, _, err := client.CollectPrefixes()
 	require.NoError(t, err)
 	assert.Len(t, received, 2)
 
@@ -91,7 +91,7 @@ func TestExpiredROAWithdrawnOnSerialQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	// Collect changes
-	received, err = client.CollectPrefixes()
+	received, _, err = client.CollectPrefixes()
 	require.NoError(t, err)
 
 	// Should contain withdrawal for 2.0.0.0/24 (Flags=0)
@@ -122,7 +122,7 @@ func TestColdStartFiltersExpiredROAs(t *testing.T) {
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
 
-	received, err := client.CollectPrefixes()
+	received, _, err := client.CollectPrefixes()
 	require.NoError(t, err)
 
 	prefixes := make(map[string]struct{})

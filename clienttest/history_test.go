@@ -28,10 +28,10 @@ func TestHistoricalDiffAggregation(t *testing.T) {
 	sessionID := resp.SessionID
 
 	// Consume initial ROA and EOD
-	_, err = client.CollectPrefixes()
+	_, eod, err := client.CollectPrefixes()
 	require.NoError(t, err)
 
-	initialSerial := uint32(1) // Assuming starting at 1
+	initialSerial := eod.SerialNumber
 
 	// Perform 5 updates
 	// Serial 2: Add 2.2.2.0/24
@@ -60,7 +60,7 @@ func TestHistoricalDiffAggregation(t *testing.T) {
 	}
 	require.Equal(t, uint8(CacheResponse), resp.Type)
 
-	received, err := client.CollectPrefixes()
+	received, _, err := client.CollectPrefixes()
 	require.NoError(t, err)
 
 	// Aggregate state manually from received diffs
@@ -98,9 +98,10 @@ func TestHistoricalDiffExpiration(t *testing.T) {
 	resp, err := ReadNextPDU(client.conn)
 	require.NoError(t, err)
 	sessionID := resp.SessionID
-	_, _ = client.CollectPrefixes()
+	_, eod, err := client.CollectPrefixes()
+	require.NoError(t, err)
 
-	initialSerial := uint32(1)
+	initialSerial := eod.SerialNumber
 
 	// Perform 11 updates (one more than maxHistory which is 10)
 	for i := 0; i < 11; i++ {
@@ -143,9 +144,10 @@ func TestHistoricalDiffBoundary(t *testing.T) {
 	require.NoError(t, err)
 	resp, _ := ReadNextPDU(client.conn)
 	sessionID := resp.SessionID
-	_, _ = client.CollectPrefixes()
+	_, eod, err := client.CollectPrefixes()
+	require.NoError(t, err)
 
-	initialSerial := uint32(1)
+	initialSerial := eod.SerialNumber
 
 	// Perform exactly 10 updates
 	for i := 0; i < 10; i++ {
@@ -183,9 +185,10 @@ func TestHistoricalDiffAggregationStability(t *testing.T) {
 	require.NoError(t, err)
 	resp, _ := ReadNextPDU(client.conn)
 	sessionID := resp.SessionID
-	_, _ = client.CollectPrefixes()
+	_, eod, err := client.CollectPrefixes()
+	require.NoError(t, err)
 
-	initialSerial := uint32(1)
+	initialSerial := eod.SerialNumber
 
 	// Serial 2: Add 2.2.2.0/24
 	srv.UpdateROAs([]server.ROA{roa1, {Prefix: pfx("2.2.2.0/24"), ASN: 2, MaxMask: 24}})
@@ -207,7 +210,7 @@ func TestHistoricalDiffAggregationStability(t *testing.T) {
 	}
 	require.Equal(t, uint8(CacheResponse), resp.Type)
 
-	received, err := client.CollectPrefixes()
+	received, _, err := client.CollectPrefixes()
 	require.NoError(t, err)
 
 	// The aggregated diff should end up with NO changes (or a set of changes that cancel out)

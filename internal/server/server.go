@@ -47,9 +47,7 @@ type UpstreamStatus struct {
 	ErrorMessage     string
 }
 
-const (
-	refreshROA = 5 * time.Minute
-)
+const ()
 
 // New creates a new Server instance
 func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {

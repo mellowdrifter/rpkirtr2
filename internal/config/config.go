@@ -16,12 +16,13 @@ var (
 )
 
 type Config struct {
-	ListenAddr string   `yaml:"listen_addr"` // e.g. ":8282"
-	GRPCAddr   string   `yaml:"grpc_addr"`   // e.g. ":50051"
-	LogLevel   string   `yaml:"log_level"`   // "info", "debug", etc.
-	RPKIURLs   []string `yaml:"rpki_urls"`   // URLs to fetch RPKI data from, e.g. ["http://rpki.example.com/roa.json"]
-	ASPAURLs   []string `yaml:"aspa_urls"`   // URLs to fetch ASPA data from, e.g. ["http://rpki.example.com/aspa.json"]
-	TestMode   bool     `yaml:"test_mode"`
+	ListenAddr      string   `yaml:"listen_addr"`      // e.g. ":8282"
+	GRPCAddr        string   `yaml:"grpc_addr"`        // e.g. ":50051"
+	LogLevel        string   `yaml:"log_level"`        // "info", "debug", etc.
+	RPKIURLs        []string `yaml:"rpki_urls"`        // URLs to fetch RPKI data from, e.g. ["http://rpki.example.com/roa.json"]
+	ASPAURLs        []string `yaml:"aspa_urls"`        // URLs to fetch ASPA data from, e.g. ["http://rpki.example.com/aspa.json"]
+	RefreshInterval uint32   `yaml:"refresh_interval"` // how often to fetch new data (seconds)
+	TestMode        bool     `yaml:"test_mode"`
 }
 
 const (
@@ -53,9 +54,10 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	var testMode = fs.Bool("testmode", false, "hidden flag for test mode")
 
 	cfg := &Config{
-		ListenAddr: ":8282",
-		GRPCAddr:   ":50051",
-		LogLevel:   "info",
+		ListenAddr:      ":8282",
+		GRPCAddr:        ":50051",
+		LogLevel:        "info",
+		RefreshInterval: DefaultRefreshInterval,
 	}
 
 	// CLI flags
@@ -63,6 +65,7 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	listen := fs.String("listen", cfg.ListenAddr, "Address to listen on (e.g. :8282)")
 	grpcAddr := fs.String("grpc-listen", cfg.GRPCAddr, "gRPC Stats address to listen on (e.g. :50051)")
 	loglevel := fs.String("loglevel", cfg.LogLevel, "Log level (debug, info, warn, error)")
+	refresh := fs.Uint("refresh", uint(cfg.RefreshInterval), "How often to fetch new data (seconds)")
 	fs.Var(&urls, "rpki-url", "RPKI JSON URL (can be specified multiple times)")
 	fs.Var(&aspaUrls, "aspa-url", "ASPA JSON URL (can be specified multiple times)")
 
@@ -116,6 +119,9 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 		if !setFlags["aspa-url"] && len(fileCfg.ASPAURLs) > 0 {
 			cfg.ASPAURLs = fileCfg.ASPAURLs
 		}
+		if !setFlags["refresh"] && fileCfg.RefreshInterval != 0 {
+			cfg.RefreshInterval = fileCfg.RefreshInterval
+		}
 		if !setFlags["testmode"] {
 			cfg.TestMode = fileCfg.TestMode
 		}
@@ -136,6 +142,9 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	}
 	if setFlags["aspa-url"] {
 		cfg.ASPAURLs = aspaUrls
+	}
+	if setFlags["refresh"] {
+		cfg.RefreshInterval = uint32(*refresh)
 	}
 	if setFlags["testmode"] {
 		cfg.TestMode = *testMode

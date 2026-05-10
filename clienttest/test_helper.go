@@ -39,9 +39,10 @@ func SetupTestServerWithURLs(t *testing.T, urls []string) (string, *server.Serve
 	t.Helper()
 
 	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0", // Random port
-		LogLevel:   "error",
-		RPKIURLs:   urls,
+		ListenAddr:      "127.0.0.1:0", // Random port
+		LogLevel:        "error",
+		RPKIURLs:        urls,
+		RefreshInterval: config.DefaultRefreshInterval,
 	}
 	logger := zap.NewNop().Sugar()
 
