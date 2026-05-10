@@ -244,3 +244,18 @@ func WriteIpv6Prefix(w io.Writer, ver Version, flags, min, max uint8, prefix [16
 	binary.BigEndian.PutUint32(buf[28:], asn)
 	return writeFull(w, buf[:])
 }
+
+// WriteAspa writes an ASPA PDU directly to the writer.
+func WriteAspa(w io.Writer, ver Version, flags uint8, casn uint32, pasns []uint32) error {
+	pduLen := uint32(12 + len(pasns)*4)
+	buf := make([]byte, pduLen)
+	buf[0] = byte(ver)
+	buf[1] = byte(Aspa)
+	buf[2] = flags
+	binary.BigEndian.PutUint32(buf[4:], pduLen)
+	binary.BigEndian.PutUint32(buf[8:], casn)
+	for i, pasn := range pasns {
+		binary.BigEndian.PutUint32(buf[12+i*4:], pasn)
+	}
+	return writeFull(w, buf)
+}

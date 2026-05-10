@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestCacheDiffAggregation(t *testing.T) {
+func TestHistoricalDiffs(t *testing.T) {
 	c := newCache()
 	c.serial = 10
 
@@ -15,15 +15,15 @@ func TestCacheDiffAggregation(t *testing.T) {
 
 	// Update 1: 10 -> 11 (add roa1)
 	c.updateDiffs([]ROA{roa1}, []ROA{roa1}, nil, nil, nil, nil)
-	c.serial = 11
+	c.incrementSerial()
 
 	// Update 2: 11 -> 12 (add roa2)
 	c.updateDiffs([]ROA{roa1, roa2}, []ROA{roa2}, nil, nil, nil, nil)
-	c.serial = 12
+	c.incrementSerial()
 
 	// Update 3: 12 -> 13 (add roa3, del roa1)
 	c.updateDiffs([]ROA{roa2, roa3}, []ROA{roa3}, []ROA{roa1}, nil, nil, nil)
-	c.serial = 13
+	c.incrementSerial()
 
 	// Test 1: Get diffs from 12 (one generation)
 	add, del, _, _, ok := c.getDiffsFrom(12)

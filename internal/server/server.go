@@ -35,8 +35,10 @@ type Server struct {
 	shuttingDown atomic.Bool
 	grpcServer   *grpc.Server
 
-	upstreamsMu sync.Mutex
+	upstreamsMu sync.RWMutex
 	upstreams   map[string]*UpstreamStatus
+
+	cancelBackground context.CancelFunc
 }
 
 type UpstreamStatus struct {
@@ -111,11 +113,14 @@ func (s *Server) Start() error {
 
 // ServeListener starts the server using the provided listener.
 func (s *Server) ServeListener(l net.Listener) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancelBackground = cancel
+
 	s.listener = l
 	s.logger.Infof("Daemon running with session id %d", s.getSession())
 
 	// Start background update ticker
+	s.wg.Add(1)
 	go s.periodicROAUpdater(ctx)
 
 	// Listen for clients
@@ -161,6 +166,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 // Stop shuts down the server gracefully
 func (s *Server) Stop(timeout time.Duration) error {
 	s.shuttingDown.Store(true)
+
+	if s.cancelBackground != nil {
+		s.cancelBackground()
+	}
 
 	s.logger.Info("Shutting down listener...")
 	if s.listener != nil {

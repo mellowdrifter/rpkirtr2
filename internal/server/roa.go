@@ -22,10 +22,32 @@ type ROA struct {
 }
 
 type JSONROA struct {
-	Prefix string `json:"prefix"`
-	Mask   uint8  `json:"maxLength"`
-	ASN    any    `json:"asn"`
-	Expires int64 `json:"expires"`
+	Prefix  string  `json:"prefix"`
+	Mask    uint8   `json:"maxLength"`
+	ASN     jsonASN `json:"asn"`
+	Expires int64   `json:"expires"`
+}
+
+type jsonASN uint32
+
+func (a *jsonASN) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*a = jsonASN(asnToUint32(s))
+		return nil
+	}
+	var n uint32
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	*a = jsonASN(n)
+	return nil
 }
 
 
@@ -57,7 +79,7 @@ func (r ROA) key() roaKey {
 	}
 }
 
-// GetSetOfValidatedROAs returns a slice of ROAs with no duplicates.
+// GetSetOfValidatedROAs returns a slice of ROAs with no duplicates, in-place.
 // It only appends if the ROA is valid.
 func GetSetOfValidatedROAs(roas []ROA) []ROA {
 	if len(roas) == 0 {
@@ -69,17 +91,18 @@ func GetSetOfValidatedROAs(roas []ROA) []ROA {
 		return roas[i].key().Less(roas[j].key())
 	})
 
-	u := make([]ROA, 0, len(roas))
-	for i := 0; i < len(roas); i++ {
-		if !roas[i].isValid() {
+	i := 0
+	for j := 0; j < len(roas); j++ {
+		if !roas[j].isValid() {
 			continue
 		}
-		// If it's the first element or different from the previous one, keep it
-		if i == 0 || roas[i].key() != roas[i-1].key() {
-			u = append(u, roas[i])
+		// If it's the first kept element or different from the previous one, keep it
+		if i == 0 || roas[j].key() != roas[i-1].key() {
+			roas[i] = roas[j]
+			i++
 		}
 	}
-	return u
+	return roas[:i]
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6482#section-3.3
@@ -111,13 +134,7 @@ type diffResult struct {
 }
 
 func makeDiff(new, old []ROA) diffResult {
-	// Sort both slices to allow two-pointer comparison
-	sort.Slice(new, func(i, j int) bool {
-		return new[i].key().Less(new[j].key())
-	})
-	sort.Slice(old, func(i, j int) bool {
-		return old[i].key().Less(old[j].key())
-	})
+	// Slices are already sorted by loadROAs and previous updateCache
 
 	var addROA, delROA []ROA
 	i, j := 0, 0
@@ -222,7 +239,7 @@ func decodeROAsJSON(r io.Reader) ([]ROA, error) {
 		roas = append(roas, ROA{
 			Prefix:  prefix,
 			MaxMask: r.Mask,
-			ASN:     decodeASN(r),
+			ASN:     uint32(r.ASN),
 			Expires: r.Expires,
 		})
 	}
@@ -231,25 +248,16 @@ func decodeROAsJSON(r io.Reader) ([]ROA, error) {
 }
 
 func filterExpired(roas []ROA, now time.Time) []ROA {
-	out := make([]ROA, 0, len(roas))
+	i := 0
 	for _, r := range roas {
 		if r.Expires == 0 || time.Unix(r.Expires, 0).After(now) {
-			out = append(out, r)
+			roas[i] = r
+			i++
 		}
 	}
-	return out
+	return roas[:i]
 }
 
-// Some URLs have the AS Number as a number while others as a string.
-func decodeASN(data JSONROA) uint32 {
-	switch atype := data.ASN.(type) {
-	case string:
-		return asnToUint32(atype)
-	case float64:
-		return uint32(atype)
-	}
-	return 0
-}
 
 // Some json VRPs contain ASXXX instead of just XXX as the ASN
 // TODO: Use a regex to remove letter instead of assuming its the first two
@@ -305,8 +313,15 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 		s.logger.Errorf("failed to fetch ROAs from upstream: %v", err)
 	}
 
-	combined := []ROA{}
+	var allSlices [][]ROA
+	total := 0
 	for r := range roasCh {
+		allSlices = append(allSlices, r)
+		total += len(r)
+	}
+
+	combined := make([]ROA, 0, total)
+	for _, r := range allSlices {
 		combined = append(combined, r...)
 	}
 
@@ -381,6 +396,9 @@ func decodeASPAsJSON(r io.Reader) ([]ASPA, error) {
 		for i, p := range a.Providers {
 			providers[i] = p.ASN
 		}
+		sort.Slice(providers, func(i, j int) bool {
+			return providers[i] < providers[j]
+		})
 		aspas = append(aspas, ASPA{
 			CustomerASN:  a.Customer,
 			ProviderASNs: providers,
@@ -435,11 +453,18 @@ func (s *Server) loadASPAs(ctx context.Context) ([]ASPA, error) {
 		s.logger.Errorf("failed to fetch ASPAs from upstream: %v", err)
 	}
 
-	combined := []ASPA{}
+	var allASPASlices [][]ASPA
+	totalASPA := 0
 	for a := range aspaCh {
+		allASPASlices = append(allASPASlices, a)
+		totalASPA += len(a)
+	}
+	combined := make([]ASPA, 0, totalASPA)
+	for _, a := range allASPASlices {
 		combined = append(combined, a...)
 	}
 
-	filteredASPAs := filterExpiredASPAs(combined, time.Now())
+	validASPAs := DeduplicateASPAsInPlace(combined)
+	filteredASPAs := filterExpiredASPAs(validASPAs, time.Now())
 	return filteredASPAs, nil
 }

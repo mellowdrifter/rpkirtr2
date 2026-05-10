@@ -40,6 +40,9 @@ func (c *RTRClient) Close() {
 }
 
 func (c *RTRClient) CollectPrefixes() ([]ReceivedROA, error) {
+	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer c.conn.SetReadDeadline(time.Time{}) // clear deadline after
+
 	var out []ReceivedROA
 	for {
 		pdu, err := ReadNextPDU(c.conn)
@@ -57,6 +60,11 @@ func (c *RTRClient) CollectPrefixes() ([]ReceivedROA, error) {
 			return out, nil
 		case CacheReset:
 			return nil, fmt.Errorf("received unexpected Cache Reset")
+		case CacheResponse, SerialNotify:
+			// Skip and keep reading.
+			continue
+		default:
+			return nil, fmt.Errorf("unexpected PDU type %d while collecting prefixes", pdu.Type)
 		}
 	}
 }

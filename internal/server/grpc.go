@@ -18,7 +18,7 @@ func (g *grpcServer) GetStats(ctx context.Context, req *rpkirtripb.GetStatsReque
 	clientCount := uint32(len(g.srv.clients))
 	g.srv.clientsMu.RUnlock()
 
-	g.srv.upstreamsMu.Lock()
+	g.srv.upstreamsMu.RLock()
 	upstreams := make([]*rpkirtripb.UpstreamStatus, 0, len(g.srv.upstreams))
 	for url, stats := range g.srv.upstreams {
 		upstreams = append(upstreams, &rpkirtripb.UpstreamStatus{
@@ -28,7 +28,7 @@ func (g *grpcServer) GetStats(ctx context.Context, req *rpkirtripb.GetStatsReque
 			ErrorMessage:     stats.ErrorMessage,
 		})
 	}
-	g.srv.upstreamsMu.Unlock()
+	g.srv.upstreamsMu.RUnlock()
 
 	return &rpkirtripb.GetStatsResponse{
 		RoaCount:    uint32(len(state.roas)),

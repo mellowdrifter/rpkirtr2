@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"runtime"
-	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -140,6 +138,7 @@ func (c *cache) getRoas() []ROA {
 }
 
 func (s *Server) periodicROAUpdater(ctx context.Context) {
+	defer s.wg.Done()
 	ticker := time.NewTicker(refreshROA)
 	if s.cfg.LogLevel == "debug" {
 		ticker = time.NewTicker(1 * time.Minute)
@@ -177,28 +176,26 @@ func (s *Server) updateCache(newROAs []ROA, newASPAs []ASPA) {
 	newROAs = filterExpired(newROAs, time.Now())
 	newASPAs = filterExpiredASPAs(newASPAs, time.Now())
 
-	s.rlock()
+	s.lock()
 	roaDiff := makeDiff(newROAs, s.cache.roas)
 	aspaDiff := makeASPADiff(newASPAs, s.cache.aspas)
-	s.runlock()
 
-	if len(roaDiff.addRoa) > 0 || len(roaDiff.delRoa) > 0 || len(aspaDiff.addAspa) > 0 || len(aspaDiff.delAspa) > 0 {
-		s.logger.Debugf("ROA diff: %d added, %d deleted", len(roaDiff.addRoa), len(roaDiff.delRoa))
-		s.logger.Debugf("ASPA diff: %d added, %d deleted", len(aspaDiff.addAspa), len(aspaDiff.delAspa))
-		s.lock()
+	hasDiff := len(roaDiff.addRoa) > 0 || len(roaDiff.delRoa) > 0 || len(aspaDiff.addAspa) > 0 || len(aspaDiff.delAspa) > 0
+
+	if hasDiff {
 		s.cache.updateDiffs(newROAs, roaDiff.addRoa, roaDiff.delRoa, newASPAs, aspaDiff.addAspa, aspaDiff.delAspa)
 		s.cache.incrementSerial()
 		s.cache.lastUpdate = time.Now()
-		s.unlock()
+	}
+	s.unlock()
+
+	if hasDiff {
+		s.logger.Debugf("ROA diff: %d added, %d deleted", len(roaDiff.addRoa), len(roaDiff.delRoa))
+		s.logger.Debugf("ASPA diff: %d added, %d deleted", len(aspaDiff.addAspa), len(aspaDiff.delAspa))
 		s.notifyClients()
 	} else {
 		s.logger.Debugf("no diffs in ROAs or ASPAs.")
 	}
-
-	// Manually trigger GC and return memory to OS after a large update.
-	// This helps keep the RSS low after the peak usage during diffing and JSON decoding.
-	runtime.GC()
-	debug.FreeOSMemory()
 }
 
 type aspaDiffResult struct {
@@ -207,28 +204,40 @@ type aspaDiffResult struct {
 }
 
 func makeASPADiff(new, old []ASPA) aspaDiffResult {
-	newMap := make(map[string]ASPA, len(new))
-	oldMap := make(map[string]ASPA, len(old))
-
-	for _, a := range new {
-		newMap[a.Key()] = a
-	}
-	for _, a := range old {
-		oldMap[a.Key()] = a
-	}
-
+	// Assume both slices are already sorted (by loadASPAs and cache storage)
 	var addASPA, delASPA []ASPA
+	i, j := 0, 0
+	for i < len(new) && j < len(old) {
+		if new[i].CustomerASN == old[j].CustomerASN && len(new[i].ProviderASNs) == len(old[j].ProviderASNs) {
+			// Check if all providers are the same (they should be sorted)
+			match := true
+			for k := range new[i].ProviderASNs {
+				if new[i].ProviderASNs[k] != old[j].ProviderASNs[k] {
+					match = false
+					break
+				}
+			}
+			if match {
+				i++
+				j++
+				continue
+			}
+		}
 
-	for k, a := range newMap {
-		if _, exists := oldMap[k]; !exists {
-			addASPA = append(addASPA, a)
+		if new[i].Less(old[j]) {
+			addASPA = append(addASPA, new[i])
+			i++
+		} else {
+			delASPA = append(delASPA, old[j])
+			j++
 		}
 	}
 
-	for k, a := range oldMap {
-		if _, exists := newMap[k]; !exists {
-			delASPA = append(delASPA, a)
-		}
+	for ; i < len(new); i++ {
+		addASPA = append(addASPA, new[i])
+	}
+	for ; j < len(old); j++ {
+		delASPA = append(delASPA, old[j])
 	}
 
 	return aspaDiffResult{
