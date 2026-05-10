@@ -106,7 +106,6 @@ func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, []ASPA, []ASPA, bool)
 	return allAdd, allDel, allAddAspa, allDelAspa, true
 }
 
-
 type cacheState struct {
 	serial     uint32
 	session    uint16

@@ -83,7 +83,7 @@ func TestClientHandleResetQuery(t *testing.T) {
 	cache := newCache()
 	cache.session = 5678
 	cache.serial = 100
-	
+
 	r1 := ROA{ASN: 300, MaxMask: 24, Prefix: netip.MustParsePrefix("1.1.1.0/24")}
 	cache.replaceRoas([]ROA{r1})
 
@@ -125,7 +125,7 @@ func TestClientHandleResetQuery(t *testing.T) {
 func TestSendAndCloseError(t *testing.T) {
 	logger := zap.NewNop().Sugar()
 	serverConn, clientConn := net.Pipe()
-	
+
 	client := NewClient(serverConn, logger, nil)
 	client.version = 1
 
@@ -170,7 +170,7 @@ func TestNotify(t *testing.T) {
 	if pdu.Type() != protocol.SerialNotify {
 		t.Errorf("Expected Serial Notify, got %v", pdu.Type())
 	}
-	
+
 	sn := pdu.(*protocol.SerialNotifyPDU)
 	if sn.Serial() != 2222 {
 		t.Errorf("Expected serial 2222, got %d", sn.Serial())

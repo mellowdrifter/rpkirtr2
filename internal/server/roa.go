@@ -50,8 +50,6 @@ func (a *jsonASN) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-
-
 type roaKey struct {
 	Prefix  netip.Prefix
 	ASN     uint32
@@ -258,7 +256,6 @@ func filterExpired(roas []ROA, now time.Time) []ROA {
 	return roas[:i]
 }
 
-
 // Some json VRPs contain ASXXX instead of just XXX as the ASN
 // TODO: Use a regex to remove letter instead of assuming its the first two
 func asnToUint32(a string) uint32 {
@@ -279,7 +276,7 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 		defer wg.Done()
 		s.logger.Debugf("Fetching ROAs from %s", url)
 		roas, err := s.fetchROAsFromURL(ctx, url)
-		
+
 		s.upstreamsMu.Lock()
 		stats := &UpstreamStatus{
 			LastFetchTime: time.Now(),
@@ -294,7 +291,7 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 		}
 		s.upstreams[url] = stats
 		s.upstreamsMu.Unlock()
-		
+
 		if err == nil {
 			s.logger.Debugf("Roas retrieved from %s", url)
 		}

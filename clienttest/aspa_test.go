@@ -23,7 +23,7 @@ func TestASPAEndToEnd(t *testing.T) {
 
 	// 2. Setup RTR Server with ASPA URL
 	addr, srv := SetupTestServerWithURLs(t, nil)
-	
+
 	aspas := []server.ASPA{
 		{CustomerASN: 65001, ProviderASNs: []uint32{65002, 65003}, Expires: 0},
 	}
@@ -62,7 +62,7 @@ func TestASPAEndToEnd(t *testing.T) {
 
 func TestASPADiff(t *testing.T) {
 	addr, srv := SetupTestServerWithURLs(t, nil)
-	
+
 	// Initial ASPA
 	aspas := []server.ASPA{
 		{CustomerASN: 65001, ProviderASNs: []uint32{65002}, Expires: 0},
@@ -76,7 +76,7 @@ func TestASPADiff(t *testing.T) {
 	// 1. Get initial state
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
-	
+
 	var sessionID uint16
 	var serial uint32
 	for {

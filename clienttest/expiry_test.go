@@ -1,12 +1,7 @@
 package clienttest
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +24,7 @@ func TestExpiredROAsNotServedOnReset(t *testing.T) {
 	roas := []server.ROA{
 		{Prefix: pfx("1.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: now.Add(1 * time.Hour).Unix()},
 		{Prefix: pfx("2.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: now.Add(-1 * time.Second).Unix()}, // already expired
-		{Prefix: pfx("3.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: 0}, // no expiry field
+		{Prefix: pfx("3.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: 0},                                // no expiry field
 	}
 
 	addr, srv := SetupTestServerWithURLs(t, nil)
@@ -58,93 +53,48 @@ func TestExpiredROAsNotServedOnReset(t *testing.T) {
 
 func TestExpiredROAWithdrawnOnSerialQuery(t *testing.T) {
 	now := time.Now()
-	expiresShortly := now.Add(1 * time.Second).Unix()
+	initialROAs := []server.ROA{
+		{Prefix: pfx("1.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: now.Add(1 * time.Hour).Unix()},
+		{Prefix: pfx("2.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: now.Add(1 * time.Hour).Unix()},
+	}
 
-	var mu sync.Mutex
-	roasJSON := fmt.Sprintf(`{"roas": [
-        {"prefix": "1.0.0.0/24", "maxLength": 24, "asn": 13335, "expires": %d},
-        {"prefix": "2.0.0.0/24", "maxLength": 24, "asn": 13335, "expires": %d}
-    ]}`, now.Add(1*time.Hour).Unix(), expiresShortly)
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		fmt.Fprintln(w, roasJSON)
-	}))
-	defer ts.Close()
-
-	addr, srv := SetupTestServerWithURLs(t, []string{ts.URL})
-
-	// Trigger initial load
-	err := srv.TriggerRefresh(context.Background())
-	require.NoError(t, err)
+	addr, srv := SetupTestServerWithURLs(t, nil)
+	srv.LoadROAs(initialROAs)
 
 	client, err := NewRTRClient(addr, 2*time.Second)
 	require.NoError(t, err)
 	defer client.Close()
 
-	// 1. Reset Query to get initial state
+	// 1. Reset Query to get initial state and establish session
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
 
+	// Consume Cache Response to get session ID
 	resp, err := ReadNextPDU(client.conn)
 	require.NoError(t, err)
 	require.Equal(t, uint8(CacheResponse), resp.Type)
 	sessionID := resp.SessionID
 
-	received := []ReceivedROA{}
-	var serial uint32
-	for {
-		resp, err = ReadNextPDU(client.conn)
-		require.NoError(t, err)
-		if resp.Type == Ipv4Prefix || resp.Type == Ipv6Prefix {
-			r, err := parsePrefix(resp)
-			require.NoError(t, err)
-			received = append(received, r)
-		} else if resp.Type == EndOfDataType {
-			eod, err := parseEndOfData(resp)
-			require.NoError(t, err)
-			serial = eod.SerialNumber
-			break
-		}
-	}
+	// Consume prefixes and EndOfData
+	received, err := client.CollectPrefixes()
+	require.NoError(t, err)
 	assert.Len(t, received, 2)
 
-	// 2. Wait for the ROA to expire
-	time.Sleep(1500 * time.Millisecond)
+	serial := srv.CacheSerial()
 
-	// Trigger refresh
-	t.Log("Triggering refresh...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err = srv.TriggerRefresh(ctx)
-	cancel()
-	require.NoError(t, err)
-	t.Log("Refresh triggered.")
+	// 2. Simulate expiry/withdrawal of one ROA
+	updatedROAs := []server.ROA{initialROAs[0]}
+	srv.UpdateROAs(updatedROAs)
 
-	// 3. Serial Query
-	t.Logf("Sending Serial Query for session %d, serial %d", sessionID, serial)
+	// 3. Serial Query for the previous state
 	err = client.Send(BuildSerialQuery(1, int(sessionID), int(serial)))
 	require.NoError(t, err)
 
-	// Wait for Cache Response, skipping any Serial Notify
-	t.Log("Waiting for Cache Response...")
-	for {
-		resp, err = ReadNextPDU(client.conn)
-		require.NoError(t, err)
-		t.Logf("Received PDU type: %d", resp.Type)
-		if resp.Type == SerialNotify {
-			continue
-		}
-		break
-	}
-	require.Equal(t, uint8(CacheResponse), resp.Type)
-
-	t.Log("Collecting prefixes...")
+	// Collect changes
 	received, err = client.CollectPrefixes()
 	require.NoError(t, err)
-	t.Logf("Received %d prefixes", len(received))
 
-	// Should contain withdrawal for 2.0.0.0/24
+	// Should contain withdrawal for 2.0.0.0/24 (Flags=0)
 	found := false
 	for _, r := range received {
 		if r.Prefix == "2.0.0.0/24" && r.Flags == 0 {

@@ -14,9 +14,9 @@ type ASPA struct {
 
 // JSONASPA represents the JSON structure of an ASPA object as provided by collectors like rpki-client.
 type JSONASPA struct {
-	Customer  uint32          `json:"customer"`
-	Providers []JSONProvider  `json:"providers"`
-	Expires   int64           `json:"expires"`
+	Customer  uint32         `json:"customer"`
+	Providers []JSONProvider `json:"providers"`
+	Expires   int64          `json:"expires"`
 }
 
 type JSONProvider struct {

@@ -19,18 +19,18 @@ func TestHistoricalDiffAggregation(t *testing.T) {
 	// Get initial session and serial
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)
-	
+
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
-	
+
 	resp, err := ReadNextPDU(client.conn)
 	require.NoError(t, err)
 	sessionID := resp.SessionID
-	
+
 	// Consume initial ROA and EOD
 	_, err = client.CollectPrefixes()
 	require.NoError(t, err)
-	
+
 	initialSerial := uint32(1) // Assuming starting at 1
 
 	// Perform 5 updates
@@ -91,10 +91,10 @@ func TestHistoricalDiffExpiration(t *testing.T) {
 
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)
-	
+
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
-	
+
 	resp, err := ReadNextPDU(client.conn)
 	require.NoError(t, err)
 	sessionID := resp.SessionID
@@ -120,7 +120,7 @@ func TestHistoricalDiffExpiration(t *testing.T) {
 		}
 		break
 	}
-	
+
 	// Should be Cache Reset
 	assert.Equal(t, uint8(CacheReset), resp.Type, "Expected Cache Reset because serial 1 has expired from history")
 }
@@ -138,7 +138,7 @@ func TestHistoricalDiffBoundary(t *testing.T) {
 
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)
-	
+
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
 	resp, _ := ReadNextPDU(client.conn)
@@ -165,7 +165,7 @@ func TestHistoricalDiffBoundary(t *testing.T) {
 		}
 		break
 	}
-	
+
 	// Should be Cache Response, NOT Cache Reset
 	assert.Equal(t, uint8(CacheResponse), resp.Type, "Expected Cache Response because serial 1 is exactly at the boundary of history")
 }
@@ -178,7 +178,7 @@ func TestHistoricalDiffAggregationStability(t *testing.T) {
 
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)
-	
+
 	err = client.Send(BuildResetQuery(1))
 	require.NoError(t, err)
 	resp, _ := ReadNextPDU(client.conn)
@@ -213,7 +213,7 @@ func TestHistoricalDiffAggregationStability(t *testing.T) {
 	// The aggregated diff should end up with NO changes (or a set of changes that cancel out)
 	// Actually, my aggregation logic just appends all add/del.
 	// So it should contain one Add 2.2.2.0/24 and one Del 2.2.2.0/24.
-	
+
 	state := map[string]bool{"1.1.1.0/24": true}
 	for _, r := range received {
 		if r.Flags == 1 {

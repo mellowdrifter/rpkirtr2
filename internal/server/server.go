@@ -54,13 +54,13 @@ const (
 // New creates a new Server instance
 func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 	return &Server{
-		logger:  logger,
-		cfg:     cfg,
-		clients: make(map[string]*Client),
-		urls:       cfg.RPKIURLs,
-		aspaURLs:   cfg.ASPAURLs,
-		cache:      newCache(),
-		wg:      sync.WaitGroup{},
+		logger:   logger,
+		cfg:      cfg,
+		clients:  make(map[string]*Client),
+		urls:     cfg.RPKIURLs,
+		aspaURLs: cfg.ASPAURLs,
+		cache:    newCache(),
+		wg:       sync.WaitGroup{},
 		httpClient: &http.Client{
 			Timeout: 1 * time.Minute,
 		},
@@ -218,4 +218,9 @@ func (s *Server) LoadROAs(roas []ROA) {
 	s.lock()
 	s.cache.replaceRoas(filterExpired(roas, time.Now()))
 	s.unlock()
+}
+
+// CacheSerial returns the current serial number of the cache.
+func (s *Server) CacheSerial() uint32 {
+	return s.getSerial()
 }

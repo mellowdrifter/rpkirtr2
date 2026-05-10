@@ -7,7 +7,7 @@ import (
 
 func TestIntegrationBasic(t *testing.T) {
 	addr := SetupTestServer(t)
-	
+
 	client, err := NewRTRClient(addr, 1*time.Second)
 	if err != nil {
 		t.Fatalf("Connect failed: %v", err)

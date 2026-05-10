@@ -94,7 +94,7 @@ func TestMakeDiff2(t *testing.T) {
 			if len(got.delRoa) != len(tt.wantDel) {
 				t.Errorf("delRoa length = %d, want %d", len(got.delRoa), len(tt.wantDel))
 			}
-			
+
 			// Simple check for presence without order dependency
 			for _, r := range got.addRoa {
 				found := false
@@ -161,26 +161,26 @@ func BenchmarkMakeDiff(b *testing.B) {
 }
 
 func TestAsnToUint32(t *testing.T) {
-tests := []struct {
-name     string
-input    string
-expected uint32
-}{
-{"AS65000", "AS65000", 65000},
-{"as65000", "as65000", 65000},
-{"pure number", "65000", 65000},
-{"short", "A", 0},
-{"empty", "", 0},
-{"garbage", "ASabc", 0},
-{"just AS", "AS", 0},
-}
+	tests := []struct {
+		name     string
+		input    string
+		expected uint32
+	}{
+		{"AS65000", "AS65000", 65000},
+		{"as65000", "as65000", 65000},
+		{"pure number", "65000", 65000},
+		{"short", "A", 0},
+		{"empty", "", 0},
+		{"garbage", "ASabc", 0},
+		{"just AS", "AS", 0},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-got := asnToUint32(tt.input)
-if got != tt.expected {
-t.Errorf("asnToUint32(%q) = %d, want %d", tt.input, got, tt.expected)
-}
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := asnToUint32(tt.input)
+			if got != tt.expected {
+				t.Errorf("asnToUint32(%q) = %d, want %d", tt.input, got, tt.expected)
+			}
+		})
+	}
 }

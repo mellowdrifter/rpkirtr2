@@ -30,7 +30,7 @@ func TestCacheRace(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			// Use net.Pipe to simulate connection
 			serverConn, clientConn := net.Pipe()
 			defer serverConn.Close()

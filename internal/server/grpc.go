@@ -13,7 +13,7 @@ type grpcServer struct {
 
 func (g *grpcServer) GetStats(ctx context.Context, req *rpkirtripb.GetStatsRequest) (*rpkirtripb.GetStatsResponse, error) {
 	state := g.srv.cache.getState()
-	
+
 	g.srv.clientsMu.RLock()
 	clientCount := uint32(len(g.srv.clients))
 	g.srv.clientsMu.RUnlock()
