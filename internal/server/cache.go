@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -57,6 +59,7 @@ func (c *cache) updateDiffs(roas []ROA, addRoa, delRoa []ROA, aspas []ASPA, addA
 	}
 	c.history = append(c.history, newDiff)
 	if len(c.history) > maxHistory {
+		c.history[0] = diffRecord{} // nil out to allow GC
 		c.history = c.history[1:]
 	}
 }
@@ -191,6 +194,11 @@ func (s *Server) updateCache(newROAs []ROA, newASPAs []ASPA) {
 	} else {
 		s.logger.Debugf("no diffs in ROAs or ASPAs.")
 	}
+
+	// Manually trigger GC and return memory to OS after a large update.
+	// This helps keep the RSS low after the peak usage during diffing and JSON decoding.
+	runtime.GC()
+	debug.FreeOSMemory()
 }
 
 type aspaDiffResult struct {

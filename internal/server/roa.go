@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,29 +27,55 @@ type JSONROA struct {
 	Expires int64 `json:"expires"`
 }
 
-type roas struct {
-	Roas []JSONROA `json:"roas"`
+
+
+type roaKey struct {
+	Prefix  netip.Prefix
+	ASN     uint32
+	MaxMask uint8
 }
 
-type rpkiResponse struct {
-	roas
+func (rk roaKey) Less(other roaKey) bool {
+	if c := rk.Prefix.Addr().Compare(other.Prefix.Addr()); c != 0 {
+		return c < 0
+	}
+	if rk.Prefix.Bits() != other.Prefix.Bits() {
+		return rk.Prefix.Bits() < other.Prefix.Bits()
+	}
+	if rk.ASN != other.ASN {
+		return rk.ASN < other.ASN
+	}
+	return rk.MaxMask < other.MaxMask
 }
 
-func (r ROA) Key() string {
-	return fmt.Sprintf("%s/%d|%d|%d", r.Prefix.Addr().String(), r.Prefix.Bits(), r.MaxMask, r.ASN)
+func (r ROA) key() roaKey {
+	return roaKey{
+		Prefix:  r.Prefix,
+		ASN:     r.ASN,
+		MaxMask: r.MaxMask,
+	}
 }
 
 // GetSetOfValidatedROAs returns a slice of ROAs with no duplicates.
-// It only appends if the ROA is valid
+// It only appends if the ROA is valid.
 func GetSetOfValidatedROAs(roas []ROA) []ROA {
+	if len(roas) == 0 {
+		return nil
+	}
+
+	// Sort first to allow easy deduplication
+	sort.Slice(roas, func(i, j int) bool {
+		return roas[i].key().Less(roas[j].key())
+	})
+
 	u := make([]ROA, 0, len(roas))
-	m := make(map[ROA]struct{})
-	for _, roa := range roas {
-		if _, ok := m[roa]; !ok {
-			m[roa] = struct{}{}
-			if roa.isValid() {
-				u = append(u, roa)
-			}
+	for i := 0; i < len(roas); i++ {
+		if !roas[i].isValid() {
+			continue
+		}
+		// If it's the first element or different from the previous one, keep it
+		if i == 0 || roas[i].key() != roas[i-1].key() {
+			u = append(u, roas[i])
 		}
 	}
 	return u
@@ -83,28 +110,42 @@ type diffResult struct {
 }
 
 func makeDiff(new, old []ROA) diffResult {
-	newMap := make(map[string]ROA, len(new))
-	oldMap := make(map[string]ROA, len(old))
-
-	for _, r := range new {
-		newMap[r.Key()] = r
-	}
-	for _, r := range old {
-		oldMap[r.Key()] = r
-	}
+	// Sort both slices to allow two-pointer comparison
+	sort.Slice(new, func(i, j int) bool {
+		return new[i].key().Less(new[j].key())
+	})
+	sort.Slice(old, func(i, j int) bool {
+		return old[i].key().Less(old[j].key())
+	})
 
 	var addROA, delROA []ROA
+	i, j := 0, 0
+	for i < len(new) && j < len(old) {
+		nk := new[i].key()
+		ok := old[j].key()
 
-	for k, r := range newMap {
-		if _, exists := oldMap[k]; !exists {
-			addROA = append(addROA, r)
+		if nk == ok {
+			// Same ROA, skip both
+			i++
+			j++
+		} else if nk.Less(ok) {
+			// New ROA is smaller, so it must be added
+			addROA = append(addROA, new[i])
+			i++
+		} else {
+			// Old ROA is smaller, so it must be deleted
+			delROA = append(delROA, old[j])
+			j++
 		}
 	}
 
-	for k, r := range oldMap {
-		if _, exists := newMap[k]; !exists {
-			delROA = append(delROA, r)
-		}
+	// Append remaining new ROAs
+	for ; i < len(new); i++ {
+		addROA = append(addROA, new[i])
+	}
+	// Append remaining old ROAs
+	for ; j < len(old); j++ {
+		delROA = append(delROA, old[j])
 	}
 
 	return diffResult{
@@ -131,16 +172,44 @@ func (s *Server) fetchROAsFromURL(ctx context.Context, url string) ([]ROA, error
 		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
-	// Decode JSON array
-	var r rpkiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, fmt.Errorf("failed to decode json: %w", err)
+	// Use streaming decoder to avoid loading entire JSON into memory
+	dec := json.NewDecoder(resp.Body)
+
+	// Seek to the "roas" field
+	// Expected format: { "roas": [ ... ] }
+	t, err := dec.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read start of JSON: %w", err)
+	}
+	if t != json.Delim('{') {
+		return nil, fmt.Errorf("expected '{', got %v", t)
 	}
 
-	// Convert JSON ROAs to internal ROA type
-	roas := make([]ROA, 0, len(r.Roas))
-	for _, r := range r.Roas {
-		// Parse prefix string to netip.Prefix
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read token: %w", err)
+		}
+		if t == "roas" {
+			break
+		}
+	}
+
+	t, err = dec.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read start of roas array: %w", err)
+	}
+	if t != json.Delim('[') {
+		return nil, fmt.Errorf("expected '[', got %v", t)
+	}
+
+	var roas []ROA
+	for dec.More() {
+		var r JSONROA
+		if err := dec.Decode(&r); err != nil {
+			return nil, fmt.Errorf("failed to decode roa: %w", err)
+		}
+
 		prefix, err := netip.ParsePrefix(r.Prefix)
 		if err != nil {
 			return nil, fmt.Errorf("invalid prefix %q: %w", r.Prefix, err)
@@ -263,13 +332,42 @@ func (s *Server) fetchASPAsFromURL(ctx context.Context, url string) ([]ASPA, err
 		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
-	var r aspaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, fmt.Errorf("failed to decode json: %w", err)
+	dec := json.NewDecoder(resp.Body)
+
+	// Seek to the "aspa" field
+	t, err := dec.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read start of JSON: %w", err)
+	}
+	if t != json.Delim('{') {
+		return nil, fmt.Errorf("expected '{', got %v", t)
 	}
 
-	aspas := make([]ASPA, 0, len(r.Aspas))
-	for _, a := range r.Aspas {
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read token: %w", err)
+		}
+		if t == "aspa" {
+			break
+		}
+	}
+
+	t, err = dec.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read start of aspa array: %w", err)
+	}
+	if t != json.Delim('[') {
+		return nil, fmt.Errorf("expected '[', got %v", t)
+	}
+
+	var aspas []ASPA
+	for dec.More() {
+		var a JSONASPA
+		if err := dec.Decode(&a); err != nil {
+			return nil, fmt.Errorf("failed to decode aspa: %w", err)
+		}
+
 		providers := make([]uint32, len(a.Providers))
 		for i, p := range a.Providers {
 			providers[i] = p.ASN

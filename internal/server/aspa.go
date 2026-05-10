@@ -25,9 +25,7 @@ type JSONProvider struct {
 	ASN uint32 `json:"asn"`
 }
 
-type aspaResponse struct {
-	Aspas []JSONASPA `json:"aspa"`
-}
+
 
 // Key returns a unique string identifier for an ASPA object, used for diffing.
 // We sort ProviderASNs to ensure the key is deterministic regardless of JSON order.

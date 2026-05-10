@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 )
 
 func writeFull(w io.Writer, buf []byte) error {
@@ -23,7 +22,7 @@ func writeFull(w io.Writer, buf []byte) error {
 }
 
 func (s *SerialNotifyPDU) Write(w io.Writer) error {
-	buf := make([]byte, 12) // fixed-size PDU
+	var buf [12]byte // fixed-size PDU
 
 	buf[0] = byte(s.version)
 	buf[1] = byte(s.ptype)
@@ -31,56 +30,56 @@ func (s *SerialNotifyPDU) Write(w io.Writer) error {
 	binary.BigEndian.PutUint32(buf[4:], s.length)
 	binary.BigEndian.PutUint32(buf[8:], s.serial)
 
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write SerialNotifyPDU: %w", err)
 	}
 	return nil
 }
 
 func (s *SerialQueryPDU) Write(w io.Writer) error {
-	buf := make([]byte, 12) // fixed-size PDU
+	var buf [12]byte // fixed-size PDU
 
 	buf[0] = byte(s.version)
 	buf[1] = byte(s.ptype)
 	binary.BigEndian.PutUint16(buf[2:], s.session)
 	binary.BigEndian.PutUint32(buf[4:], s.length)
 	binary.BigEndian.PutUint32(buf[8:], s.serial)
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write SerialQueryPDU: %w", err)
 	}
 	return nil
 }
 
 func (r *ResetQueryPDU) Write(w io.Writer) error {
-	buf := make([]byte, 8) // fixed-size PDU
+	var buf [8]byte // fixed-size PDU
 
 	buf[0] = byte(r.version)
 	buf[1] = byte(r.ptype)
 	buf[2] = r.zero
 	binary.BigEndian.PutUint32(buf[4:], r.length)
 
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write ResetQueryPDU: %w", err)
 	}
 	return nil
 }
 
 func (c *CacheResponsePDU) Write(w io.Writer) error {
-	buf := make([]byte, 8) // fixed-size PDU
+	var buf [8]byte // fixed-size PDU
 
 	buf[0] = byte(c.version)
 	buf[1] = byte(c.ptype)
 	binary.BigEndian.PutUint16(buf[2:], c.session)
 	binary.BigEndian.PutUint32(buf[4:], c.length)
 
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write CacheResponsePDU: %w", err)
 	}
 	return nil
 }
 
 func (i *Ipv4PrefixPDU) Write(w io.Writer) error {
-	buf := make([]byte, 20) // fixed-size PDU
+	var buf [20]byte // fixed-size PDU
 
 	buf[0] = byte(i.version)
 	buf[1] = byte(i.ptype)
@@ -93,15 +92,14 @@ func (i *Ipv4PrefixPDU) Write(w io.Writer) error {
 	copy(buf[12:16], i.prefix[:])
 	binary.BigEndian.PutUint32(buf[16:], i.asn)
 
-	if err := writeFull(w, buf); err != nil {
-		log.Printf("Failed to write Ipv4PrefixPDU: %v", buf)
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write Ipv4PrefixPDU: %w", err)
 	}
 	return nil
 }
 
 func (i *Ipv6PrefixPDU) Write(w io.Writer) error {
-	buf := make([]byte, 32) // fixed-size PDU
+	var buf [32]byte // fixed-size PDU
 	buf[0] = byte(i.version)
 	buf[1] = byte(i.ptype)
 	binary.BigEndian.PutUint16(buf[2:], i.zero1)
@@ -113,14 +111,14 @@ func (i *Ipv6PrefixPDU) Write(w io.Writer) error {
 	copy(buf[12:28], i.prefix[:])               // 16 bytes for IPv6 prefix
 	binary.BigEndian.PutUint32(buf[28:], i.asn) // 4 bytes for AS Number
 
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write Ipv6PrefixPDU: %w", err)
 	}
 	return nil
 }
 
 func (e *EndOfDataPDU) Write(w io.Writer) error {
-	buf := make([]byte, 24) // fixed-size PDU
+	var buf [24]byte // fixed-size PDU
 
 	buf[0] = byte(e.version)
 	buf[1] = byte(e.ptype)
@@ -131,21 +129,21 @@ func (e *EndOfDataPDU) Write(w io.Writer) error {
 	binary.BigEndian.PutUint32(buf[16:], e.retry)
 	binary.BigEndian.PutUint32(buf[20:], e.expire)
 
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write EndOfDataPDU: %w", err)
 	}
 	return nil
 }
 
 func (c *cacheResetPDU) Write(w io.Writer) error {
-	buf := make([]byte, 8) // fixed-size PDU
+	var buf [8]byte // fixed-size PDU
 
 	buf[0] = byte(c.version)
 	buf[1] = byte(c.ptype)
 	binary.BigEndian.PutUint16(buf[2:], c.zero)
 	binary.BigEndian.PutUint32(buf[4:], c.length)
 
-	if err := writeFull(w, buf); err != nil {
+	if err := writeFull(w, buf[:]); err != nil {
 		return fmt.Errorf("failed to write cacheResetPDU: %w", err)
 	}
 	return nil
@@ -217,4 +215,32 @@ func (a *AspaPDU) Write(w io.Writer) error {
 		return fmt.Errorf("failed to write AspaPDU: %w", err)
 	}
 	return nil
+}
+
+// WriteIpv4Prefix writes an IPv4 Prefix PDU directly to the writer.
+func WriteIpv4Prefix(w io.Writer, ver Version, flags, min, max uint8, prefix [4]byte, asn uint32) error {
+	var buf [20]byte
+	buf[0] = byte(ver)
+	buf[1] = byte(Ipv4Prefix)
+	binary.BigEndian.PutUint32(buf[4:], ipv4Length)
+	buf[8] = flags
+	buf[9] = min
+	buf[10] = max
+	copy(buf[12:16], prefix[:])
+	binary.BigEndian.PutUint32(buf[16:], asn)
+	return writeFull(w, buf[:])
+}
+
+// WriteIpv6Prefix writes an IPv6 Prefix PDU directly to the writer.
+func WriteIpv6Prefix(w io.Writer, ver Version, flags, min, max uint8, prefix [16]byte, asn uint32) error {
+	var buf [32]byte
+	buf[0] = byte(ver)
+	buf[1] = byte(Ipv6Prefix)
+	binary.BigEndian.PutUint32(buf[4:], ipv6Length)
+	buf[8] = flags
+	buf[9] = min
+	buf[10] = max
+	copy(buf[12:28], prefix[:])
+	binary.BigEndian.PutUint32(buf[28:], asn)
+	return writeFull(w, buf[:])
 }

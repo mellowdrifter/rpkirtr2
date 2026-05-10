@@ -207,13 +207,13 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 
 	// 2. Send all ROA additions
 	for _, ROA := range add {
-		var pdu protocol.PDU
+		var err error
 		if ROA.Prefix.Addr().Is4() {
-			pdu = protocol.NewIpv4PrefixPDU(c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As4(), ROA.ASN)
+			err = protocol.WriteIpv4Prefix(c.writer, c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As4(), ROA.ASN)
 		} else {
-			pdu = protocol.NewIpv6PrefixPDU(c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As16(), ROA.ASN)
+			err = protocol.WriteIpv6Prefix(c.writer, c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As16(), ROA.ASN)
 		}
-		if err := pdu.Write(c.writer); err != nil {
+		if err != nil {
 			c.logger.Errorf("Failed to write prefix PDU: %v", err)
 			return
 		}
@@ -232,13 +232,13 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 
 	// 4. Send all ROA deletions
 	for _, ROA := range del {
-		var pdu protocol.PDU
+		var err error
 		if ROA.Prefix.Addr().Is4() {
-			pdu = protocol.NewIpv4PrefixPDU(c.version, protocol.Withdraw, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As4(), ROA.ASN)
+			err = protocol.WriteIpv4Prefix(c.writer, c.version, protocol.Withdraw, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As4(), ROA.ASN)
 		} else {
-			pdu = protocol.NewIpv6PrefixPDU(c.version, protocol.Withdraw, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As16(), ROA.ASN)
+			err = protocol.WriteIpv6Prefix(c.writer, c.version, protocol.Withdraw, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As16(), ROA.ASN)
 		}
-		if err := pdu.Write(c.writer); err != nil {
+		if err != nil {
 			c.logger.Errorf("Failed to write prefix PDU: %v", err)
 			return
 		}
@@ -295,13 +295,13 @@ func (c *Client) sendAllData(roas []ROA, aspas []ASPA, session uint16, serial ui
 
 	// 2. Prefix PDUs
 	for _, ROA := range roas {
-		var pdu protocol.PDU
+		var err error
 		if ROA.Prefix.Addr().Is4() {
-			pdu = protocol.NewIpv4PrefixPDU(c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As4(), ROA.ASN)
+			err = protocol.WriteIpv4Prefix(c.writer, c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As4(), ROA.ASN)
 		} else {
-			pdu = protocol.NewIpv6PrefixPDU(c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As16(), ROA.ASN)
+			err = protocol.WriteIpv6Prefix(c.writer, c.version, protocol.Announce, uint8(ROA.Prefix.Bits()), ROA.MaxMask, ROA.Prefix.Addr().As16(), ROA.ASN)
 		}
-		if err := pdu.Write(c.writer); err != nil {
+		if err != nil {
 			c.logger.Errorf("Failed to write prefix PDU: %v", err)
 			return
 		}
