@@ -1,0 +1,18 @@
+# rpkirtr2 configuration example
+
+# Address to listen on for RPKI-RTR clients
+# listen_addr: ":8282"
+
+# Address to listen on for gRPC statistics
+# grpc_addr: ":50051"
+
+# Log level (debug, info, warn, error)
+# log_level: "info"
+
+# List of RPKI JSON URLs to fetch data from
+# rpki_urls:
+#   - "https://rpki.gin.ntt.net/api/export.json"
+#   - "https://console.rpki-client.org/vrps.json"
+
+# Enable test mode (hidden feature)
+# test_mode: false

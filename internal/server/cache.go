@@ -185,10 +185,18 @@ func (s *Server) notifyClients() {
 	}
 	s.clientsMu.RUnlock()
 
-	for _, client := range clients {
-		s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.getSerial())
-		client.notify()
+	if len(clients) == 0 {
+		return
 	}
+
+	// Notify clients in the background to avoid blocking the server's update loop
+	// if a client is slow or dead.
+	go func() {
+		for _, client := range clients {
+			s.logger.Infof("Notifying client %s of new serial %d", client.ID(), s.getSerial())
+			client.notify()
+		}
+	}()
 }
 
 func (s *Server) lock() {

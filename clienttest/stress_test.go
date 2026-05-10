@@ -8,6 +8,7 @@ import (
 )
 
 func TestStressNewClients(t *testing.T) {
+	addr := SetupTestServer(t)
 	var clients []RTRClient
 	defer func() {
 		for _, client := range clients {
@@ -17,7 +18,7 @@ func TestStressNewClients(t *testing.T) {
 
 	// Create 100 clients
 	for i := range 100 {
-		client, err := NewRTRClient(getTestAddr(), 2*time.Second)
+		client, err := NewRTRClient(addr, 2*time.Second)
 		if err != nil {
 			t.Fatalf("Connect failed at %d: %v", i, err)
 		}

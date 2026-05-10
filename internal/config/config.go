@@ -3,21 +3,24 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 var (
 	RPKIURLs = []string{
-		"https://hosted-routinator.rarc.net/json",
+		"https://rpki.gin.ntt.net/api/export.json",
 		"https://console.rpki-client.org/vrps.json",
 	}
 )
 
 type Config struct {
-	ListenAddr string   // e.g. ":8282"
-	GRPCAddr   string   // e.g. ":50051"
-	LogLevel   string   // "info", "debug", etc.
-	RPKIURLs   []string // URLs to fetch RPKI data from, e.g. ["http://rpki.example.com/roa.json"]
-	TestMode   bool
+	ListenAddr string   `yaml:"listen_addr"` // e.g. ":8282"
+	GRPCAddr   string   `yaml:"grpc_addr"`   // e.g. ":50051"
+	LogLevel   string   `yaml:"log_level"`   // "info", "debug", etc.
+	RPKIURLs   []string `yaml:"rpki_urls"`   // URLs to fetch RPKI data from, e.g. ["http://rpki.example.com/roa.json"]
+	TestMode   bool     `yaml:"test_mode"`
 }
 
 const (
@@ -40,8 +43,13 @@ func (u *urlList) Set(value string) error {
 
 // Load reads config from flags, env vars, or defaults.
 func Load() (*Config, error) {
+	return LoadWithArgs(flag.CommandLine, os.Args[1:])
+}
+
+// LoadWithArgs is like Load but allows passing a custom FlagSet and arguments, mainly for testing.
+func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	var urls urlList
-	var testMode = flag.Bool("testmode", false, "hidden flag for test mode")
+	var testMode = fs.Bool("testmode", false, "hidden flag for test mode")
 
 	cfg := &Config{
 		ListenAddr: ":8282",
@@ -49,15 +57,16 @@ func Load() (*Config, error) {
 		LogLevel:   "info",
 	}
 
-	// CLI flags take highest priority
-	listen := flag.String("listen", cfg.ListenAddr, "Address to listen on (e.g. :8282)")
-	grpcAddr := flag.String("grpc-listen", cfg.GRPCAddr, "gRPC Stats address to listen on (e.g. :50051)")
-	loglevel := flag.String("loglevel", cfg.LogLevel, "Log level (debug, info, warn, error)")
-	flag.Var(&urls, "rpki-url", "RPKI JSON URL (can be specified multiple times)")
+	// CLI flags
+	configFile := fs.String("config", "", "Path to YAML configuration file")
+	listen := fs.String("listen", cfg.ListenAddr, "Address to listen on (e.g. :8282)")
+	grpcAddr := fs.String("grpc-listen", cfg.GRPCAddr, "gRPC Stats address to listen on (e.g. :50051)")
+	loglevel := fs.String("loglevel", cfg.LogLevel, "Log level (debug, info, warn, error)")
+	fs.Var(&urls, "rpki-url", "RPKI JSON URL (can be specified multiple times)")
 
-	flag.Usage = func() {
+	fs.Usage = func() {
 		fmt.Println("Usage:")
-		flag.VisitAll(func(f *flag.Flag) {
+		fs.VisitAll(func(f *flag.Flag) {
 			if f.Name == "testmode" {
 				return // hide this flag
 			}
@@ -65,17 +74,67 @@ func Load() (*Config, error) {
 		})
 	}
 
-	flag.Parse()
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
 
-	cfg.ListenAddr = *listen
-	cfg.GRPCAddr = *grpcAddr
-	cfg.LogLevel = *loglevel
-	cfg.TestMode = *testMode
+	// Track which flags were explicitly set by the user
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		setFlags[f.Name] = true
+	})
 
-	// Use provided URLs if any, otherwise fallback to default
-	if len(urls) > 0 {
+	// Load from config file if provided
+	if *configFile != "" {
+		f, err := os.Open(*configFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open config file: %v", err)
+		}
+		defer f.Close()
+
+		var fileCfg Config
+		decoder := yaml.NewDecoder(f)
+		if err := decoder.Decode(&fileCfg); err != nil {
+			return nil, fmt.Errorf("failed to decode config file: %v", err)
+		}
+
+		// Merge fileCfg into cfg if flags weren't set
+		if !setFlags["listen"] && fileCfg.ListenAddr != "" {
+			cfg.ListenAddr = fileCfg.ListenAddr
+		}
+		if !setFlags["grpc-listen"] && fileCfg.GRPCAddr != "" {
+			cfg.GRPCAddr = fileCfg.GRPCAddr
+		}
+		if !setFlags["loglevel"] && fileCfg.LogLevel != "" {
+			cfg.LogLevel = fileCfg.LogLevel
+		}
+		if !setFlags["rpki-url"] && len(fileCfg.RPKIURLs) > 0 {
+			cfg.RPKIURLs = fileCfg.RPKIURLs
+		}
+		if !setFlags["testmode"] {
+			cfg.TestMode = fileCfg.TestMode
+		}
+	}
+
+	// Apply flag overrides (if they were set)
+	if setFlags["listen"] {
+		cfg.ListenAddr = *listen
+	}
+	if setFlags["grpc-listen"] {
+		cfg.GRPCAddr = *grpcAddr
+	}
+	if setFlags["loglevel"] {
+		cfg.LogLevel = *loglevel
+	}
+	if setFlags["rpki-url"] {
 		cfg.RPKIURLs = urls
-	} else {
+	}
+	if setFlags["testmode"] {
+		cfg.TestMode = *testMode
+	}
+
+	// Final fallback for URLs if still empty
+	if len(cfg.RPKIURLs) == 0 {
 		cfg.RPKIURLs = RPKIURLs
 	}
 

@@ -7,7 +7,8 @@ import (
 )
 
 func TestVersionMismatch(t *testing.T) {
-	client, err := NewRTRClient(getTestAddr(), 2*time.Second)
+	addr := SetupTestServer(t)
+	client, err := NewRTRClient(addr, 2*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}

@@ -2,35 +2,19 @@ package clienttest
 
 import (
 	"fmt"
-	"net"
 	"testing"
 	"time"
 
-	"github.com/mellowdrifter/rpkirtr2/internal/config"
 	"github.com/mellowdrifter/rpkirtr2/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
 )
 
 func TestHistoricalDiffAggregation(t *testing.T) {
 	// Start server with initial ROA
 	roa1 := server.ROA{Prefix: pfx("1.1.1.0/24"), ASN: 1, MaxMask: 24}
-	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0",
-		LogLevel:   "error",
-	}
-	srv := server.New(cfg, zaptest.NewLogger(t).Sugar())
+	addr, srv := SetupTestServerWithURLs(t, nil)
 	srv.LoadROAs([]server.ROA{roa1})
-
-	l, err := net.Listen("tcp", cfg.ListenAddr)
-	require.NoError(t, err)
-	addr := l.Addr().String()
-
-	go func() {
-		_ = srv.ServeListener(l)
-	}()
-	defer srv.Stop(1 * time.Second)
 
 	// Get initial session and serial
 	client, err := NewRTRClient(addr, 1*time.Second)
@@ -102,21 +86,8 @@ func TestHistoricalDiffAggregation(t *testing.T) {
 }
 
 func TestHistoricalDiffExpiration(t *testing.T) {
-	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0",
-		LogLevel:   "error",
-	}
-	srv := server.New(cfg, zaptest.NewLogger(t).Sugar())
+	addr, srv := SetupTestServerWithURLs(t, nil)
 	srv.LoadROAs([]server.ROA{{Prefix: pfx("1.1.1.0/24"), ASN: 1, MaxMask: 24}})
-
-	l, err := net.Listen("tcp", cfg.ListenAddr)
-	require.NoError(t, err)
-	addr := l.Addr().String()
-
-	go func() {
-		_ = srv.ServeListener(l)
-	}()
-	defer srv.Stop(1 * time.Second)
 
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)
@@ -162,21 +133,8 @@ func TestHistoricalDiffBoundary(t *testing.T) {
 	// Update 10: 10->11
 	// Serial 1 should still be in history (it's the 'from' of the first entry).
 
-	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0",
-		LogLevel:   "error",
-	}
-	srv := server.New(cfg, zaptest.NewLogger(t).Sugar())
+	addr, srv := SetupTestServerWithURLs(t, nil)
 	srv.LoadROAs([]server.ROA{{Prefix: pfx("1.1.1.0/24"), ASN: 1, MaxMask: 24}})
-
-	l, err := net.Listen("tcp", cfg.ListenAddr)
-	require.NoError(t, err)
-	addr := l.Addr().String()
-
-	go func() {
-		_ = srv.ServeListener(l)
-	}()
-	defer srv.Stop(1 * time.Second)
 
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)
@@ -215,21 +173,8 @@ func TestHistoricalDiffBoundary(t *testing.T) {
 func TestHistoricalDiffAggregationStability(t *testing.T) {
 	// Test that adding and then deleting the same ROA in a multi-step diff works
 	roa1 := server.ROA{Prefix: pfx("1.1.1.0/24"), ASN: 1, MaxMask: 24}
-	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0",
-		LogLevel:   "error",
-	}
-	srv := server.New(cfg, zaptest.NewLogger(t).Sugar())
+	addr, srv := SetupTestServerWithURLs(t, nil)
 	srv.LoadROAs([]server.ROA{roa1})
-
-	l, err := net.Listen("tcp", cfg.ListenAddr)
-	require.NoError(t, err)
-	addr := l.Addr().String()
-
-	go func() {
-		_ = srv.ServeListener(l)
-	}()
-	defer srv.Stop(1 * time.Second)
 
 	client, err := NewRTRClient(addr, 1*time.Second)
 	require.NoError(t, err)

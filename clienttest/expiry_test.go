@@ -2,9 +2,7 @@ package clienttest
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -12,33 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mellowdrifter/rpkirtr2/internal/config"
 	"github.com/mellowdrifter/rpkirtr2/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
 )
 
-func startTestServer(t *testing.T, roas []server.ROA) (addr string, stop func()) {
-	t.Helper()
-	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0", // OS picks a free port
-		LogLevel:   "error",
-	}
-	srv := server.New(cfg, zaptest.NewLogger(t).Sugar())
-	srv.LoadROAs(roas)
-
-	l, err := net.Listen("tcp", cfg.ListenAddr)
-	require.NoError(t, err)
-	addr = l.Addr().String()
-
-	go func() {
-		_ = srv.ServeListener(l)
-	}()
-
-	return addr, func() { _ = srv.Stop(5 * time.Second) }
-}
-
+// Helper to parse prefix
 func pfx(s string) netip.Prefix {
 	p, err := netip.ParsePrefix(s)
 	if err != nil {
@@ -55,8 +32,8 @@ func TestExpiredROAsNotServedOnReset(t *testing.T) {
 		{Prefix: pfx("3.0.0.0/24"), ASN: 13335, MaxMask: 24, Expires: 0}, // no expiry field
 	}
 
-	addr, stop := startTestServer(t, roas)
-	defer stop()
+	addr, srv := SetupTestServerWithURLs(t, nil)
+	srv.LoadROAs(roas)
 
 	client, err := NewRTRClient(addr, 2*time.Second)
 	require.NoError(t, err)
@@ -96,24 +73,10 @@ func TestExpiredROAWithdrawnOnSerialQuery(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := &config.Config{
-		ListenAddr: "127.0.0.1:0",
-		LogLevel:   "debug",
-		RPKIURLs:   []string{ts.URL},
-	}
-	srv := server.New(cfg, zaptest.NewLogger(t).Sugar())
-	
-	l, err := net.Listen("tcp", cfg.ListenAddr)
-	require.NoError(t, err)
-	addr := l.Addr().String()
-
-	go func() {
-		_ = srv.ServeListener(l)
-	}()
-	defer srv.Stop(5 * time.Second)
+	addr, srv := SetupTestServerWithURLs(t, []string{ts.URL})
 
 	// Trigger initial load
-	err = srv.TriggerRefresh(context.Background())
+	err := srv.TriggerRefresh(context.Background())
 	require.NoError(t, err)
 
 	client, err := NewRTRClient(addr, 2*time.Second)
@@ -129,30 +92,46 @@ func TestExpiredROAWithdrawnOnSerialQuery(t *testing.T) {
 	require.Equal(t, uint8(CacheResponse), resp.Type)
 	sessionID := resp.SessionID
 
-	received, err := client.CollectPrefixes()
-	require.NoError(t, err)
+	received := []ReceivedROA{}
+	var serial uint32
+	for {
+		resp, err = ReadNextPDU(client.conn)
+		require.NoError(t, err)
+		if resp.Type == Ipv4Prefix || resp.Type == Ipv6Prefix {
+			r, err := parsePrefix(resp)
+			require.NoError(t, err)
+			received = append(received, r)
+		} else if resp.Type == EndOfDataType {
+			eod, err := parseEndOfData(resp)
+			require.NoError(t, err)
+			serial = eod.SerialNumber
+			break
+		}
+	}
 	assert.Len(t, received, 2)
-
-	eod, err := ReadNextPDU(client.conn)
-	require.NoError(t, err)
-	require.Equal(t, uint8(EndOfDataType), eod.Type)
-	serial := binary.BigEndian.Uint32(eod.Body[0:4])
 
 	// 2. Wait for the ROA to expire
 	time.Sleep(1500 * time.Millisecond)
 
 	// Trigger refresh
-	err = srv.TriggerRefresh(context.Background())
+	t.Log("Triggering refresh...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = srv.TriggerRefresh(ctx)
+	cancel()
 	require.NoError(t, err)
+	t.Log("Refresh triggered.")
 
 	// 3. Serial Query
+	t.Logf("Sending Serial Query for session %d, serial %d", sessionID, serial)
 	err = client.Send(BuildSerialQuery(1, int(sessionID), int(serial)))
 	require.NoError(t, err)
 
 	// Wait for Cache Response, skipping any Serial Notify
+	t.Log("Waiting for Cache Response...")
 	for {
 		resp, err = ReadNextPDU(client.conn)
 		require.NoError(t, err)
+		t.Logf("Received PDU type: %d", resp.Type)
 		if resp.Type == SerialNotify {
 			continue
 		}
@@ -160,8 +139,10 @@ func TestExpiredROAWithdrawnOnSerialQuery(t *testing.T) {
 	}
 	require.Equal(t, uint8(CacheResponse), resp.Type)
 
+	t.Log("Collecting prefixes...")
 	received, err = client.CollectPrefixes()
 	require.NoError(t, err)
+	t.Logf("Received %d prefixes", len(received))
 
 	// Should contain withdrawal for 2.0.0.0/24
 	found := false
@@ -181,8 +162,8 @@ func TestColdStartFiltersExpiredROAs(t *testing.T) {
 		{Prefix: pfx("10.1.0.0/16"), ASN: 64501, MaxMask: 24, Expires: now.Add(1 * time.Hour).Unix()},
 	}
 
-	addr, stop := startTestServer(t, roas)
-	defer stop()
+	addr, srv := SetupTestServerWithURLs(t, nil)
+	srv.LoadROAs(roas)
 
 	client, err := NewRTRClient(addr, 2*time.Second)
 	require.NoError(t, err)

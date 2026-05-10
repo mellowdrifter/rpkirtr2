@@ -7,9 +7,10 @@ import (
 )
 
 func TestMalformedPDU(t *testing.T) {
-	client, err := NewRTRClient(getTestAddr(), 2*time.Second)
+	addr := SetupTestServer(t)
+	client, err := NewRTRClient(addr, 2*time.Second)
 	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
+		t.Fatalf("Failed to connect: %v", err)
 	}
 	defer client.Close()
 

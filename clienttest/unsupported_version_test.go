@@ -11,18 +11,20 @@ import (
 var supportedVersions = []int{1, 2}
 
 func TestUnsupportedVersionsResetQuery(t *testing.T) {
-	for i := 0; i <= 256; i++ {
-		if slices.Contains(supportedVersions, i) {
+	addr := SetupTestServer(t)
+	// RTR Version 0-256 (0-2 is supported, higher is not)
+	for v := 0; v <= 256; v++ {
+		if slices.Contains(supportedVersions, v) {
 			continue // Skip supported versions
 		}
-		t.Run(fmt.Sprintf("Testing version %d", i), func(t *testing.T) {
-			client, err := NewRTRClient(getTestAddr(), 2*time.Second)
+		t.Run(fmt.Sprintf("Testing version %d", v), func(t *testing.T) {
+			client, err := NewRTRClient(addr, 1*time.Second)
 			if err != nil {
 				t.Fatalf("Connect failed: %v", err)
 			}
 			defer client.Close()
 
-			err = client.Send(BuildResetQuery(i))
+			err = client.Send(BuildResetQuery(v))
 			if err != nil {
 				t.Fatalf("Send failed: %v", err)
 			}
@@ -58,12 +60,13 @@ func TestUnsupportedVersionsResetQuery(t *testing.T) {
 }
 
 func TestUnsupportedVersionsSerialQuery(t *testing.T) {
+	addr := SetupTestServer(t)
 	for i := 0; i <= 256; i++ {
 		if slices.Contains(supportedVersions, i) {
 			continue // Skip supported versions
 		}
 		t.Run(fmt.Sprintf("Testing version %d", i), func(t *testing.T) {
-			client, err := NewRTRClient(getTestAddr(), 2*time.Second)
+			client, err := NewRTRClient(addr, 2*time.Second)
 			if err != nil {
 				t.Fatalf("Connect failed: %v", err)
 			}
