@@ -212,6 +212,9 @@ func decipherPDU(data []byte) (PDU, error) {
 			return nil, fmt.Errorf("AspaPDU data shorter than length field: %d < %d", len(data), length)
 		}
 		casn := binary.BigEndian.Uint32(data[8:12])
+		if length < 12 {
+			return nil, fmt.Errorf("AspaPDU length too short: %d", length)
+		}
 		pasnCount := (int(length) - 12) / 4
 		pasns := make([]uint32, pasnCount)
 		for i := 0; i < pasnCount; i++ {

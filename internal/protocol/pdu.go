@@ -445,7 +445,7 @@ func NewRouterKeyPDU(ver Version, session uint16, ski [20]byte, asn uint32, skiI
 		version: ver,
 		ptype:   RouterKey,
 		session: session,
-		length:  uint32(24 + len(skiInfo)), // 24 bytes for header and SKI, plus variable length for skiInfo
+		length:  uint32(32 + len(skiInfo)), // 8 (header) + 20 (SKI) + 4 (ASN) + variable (skiInfo)
 		ski:     ski,
 		asn:     asn,
 		skiInfo: skiInfo,

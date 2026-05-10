@@ -22,6 +22,30 @@ func FuzzDecipherPDU(f *testing.F) {
 		0, 0, 0, 12,
 		0, 0, 0, 99,
 	})
+	// Aspa PDU
+	f.Add([]byte{
+		1, byte(Aspa),
+		1, 0, // flags, zero
+		0, 0, 0, 16, // length
+		0, 0, 4, 210, // casn 1234
+		0, 0, 0, 100, // pasn 100
+	})
+	// RouterKey PDU
+	f.Add([]byte{
+		1, byte(RouterKey),
+		0, 1, // session
+		0, 0, 0, 32, // length
+		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, // ski
+		0, 0, 4, 210, // asn 1234
+	})
+	// ErrorReport PDU
+	f.Add([]byte{
+		1, byte(ErrorReport),
+		0, 1, // error code
+		0, 0, 0, 16, // total length
+		0, 0, 0, 0, // embedded pdu length
+		0, 0, 0, 0, // text length
+	})
 	// Invalid or short PDU
 	f.Add([]byte{1})
 
@@ -33,7 +57,24 @@ func FuzzDecipherPDU(f *testing.F) {
 			}
 		}()
 
-		_, _ = decipherPDU(data)
+		pdu, err := decipherPDU(data)
+		if err != nil {
+			return
+		}
+
+		// Round-trip check: ensure Write doesn't panic and produces reasonable output
+		var buf bytes.Buffer
+		if err := pdu.Write(&buf); err != nil {
+			t.Errorf("failed to write decoded PDU: %v", err)
+		}
+
+		// Verify the written length matches the expected length from header
+		if buf.Len() >= 8 {
+			gotLen := binary.BigEndian.Uint32(buf.Bytes()[4:8])
+			if int(gotLen) != buf.Len() {
+				t.Errorf("PDU length mismatch: header says %d, wrote %d", gotLen, buf.Len())
+			}
+		}
 	})
 }
 

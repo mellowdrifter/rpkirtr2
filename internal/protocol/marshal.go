@@ -150,7 +150,7 @@ func (c *cacheResetPDU) Write(w io.Writer) error {
 }
 
 func (r *RouterKeyPDU) Write(w io.Writer) error {
-	buf := make([]byte, 24+len(r.skiInfo)) // fixed-size PDU
+	buf := make([]byte, 32+len(r.skiInfo)) // 8 (header) + 20 (SKI) + 4 (ASN) + variable (skiInfo)
 
 	buf[0] = byte(r.version)
 	buf[1] = byte(r.ptype)

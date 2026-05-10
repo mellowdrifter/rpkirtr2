@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"sort"
@@ -172,8 +173,12 @@ func (s *Server) fetchROAsFromURL(ctx context.Context, url string) ([]ROA, error
 		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
+	return decodeROAsJSON(resp.Body)
+}
+
+func decodeROAsJSON(r io.Reader) ([]ROA, error) {
 	// Use streaming decoder to avoid loading entire JSON into memory
-	dec := json.NewDecoder(resp.Body)
+	dec := json.NewDecoder(r)
 
 	// Seek to the "roas" field
 	// Expected format: { "roas": [ ... ] }
@@ -332,7 +337,11 @@ func (s *Server) fetchASPAsFromURL(ctx context.Context, url string) ([]ASPA, err
 		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
-	dec := json.NewDecoder(resp.Body)
+	return decodeASPAsJSON(resp.Body)
+}
+
+func decodeASPAsJSON(r io.Reader) ([]ASPA, error) {
+	dec := json.NewDecoder(r)
 
 	// Seek to the "aspa" field
 	t, err := dec.Token()
