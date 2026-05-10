@@ -13,6 +13,7 @@ import (
 	"github.com/mellowdrifter/rpkirtr2/internal/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type Server struct {
@@ -98,6 +99,7 @@ func (s *Server) Start() error {
 	}
 	s.grpcServer = grpc.NewServer()
 	rpkirtripb.RegisterRPKIRTRServiceServer(s.grpcServer, &grpcServer{srv: s})
+	reflection.Register(s.grpcServer)
 
 	go func() {
 		s.logger.Infof("gRPC Stats API listening on %s", s.cfg.GRPCAddr)

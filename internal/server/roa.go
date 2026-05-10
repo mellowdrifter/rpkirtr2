@@ -22,10 +22,10 @@ type ROA struct {
 }
 
 type JSONROA struct {
-	Prefix  string  `json:"prefix"`
-	Mask    uint8   `json:"maxLength"`
-	ASN     jsonASN `json:"asn"`
-	Expires int64   `json:"expires"`
+	Prefix  netip.Prefix `json:"prefix"`
+	Mask    uint8        `json:"maxLength"`
+	ASN     jsonASN      `json:"asn"`
+	Expires int64        `json:"expires"`
 }
 
 type jsonASN uint32
@@ -230,12 +230,8 @@ func decodeROAsJSON(r io.Reader) ([]ROA, error) {
 			return nil, fmt.Errorf("failed to decode roa: %w", err)
 		}
 
-		prefix, err := netip.ParsePrefix(r.Prefix)
-		if err != nil {
-			return nil, fmt.Errorf("invalid prefix %q: %w", r.Prefix, err)
-		}
 		roas = append(roas, ROA{
-			Prefix:  prefix,
+			Prefix:  r.Prefix,
 			MaxMask: r.Mask,
 			ASN:     uint32(r.ASN),
 			Expires: r.Expires,
@@ -331,137 +327,4 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 	filteredRoas := filterExpired(validRoas, time.Now())
 
 	return filteredRoas, nil
-}
-
-func (s *Server) fetchASPAsFromURL(ctx context.Context, url string) ([]ASPA, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http request error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
-	}
-
-	return decodeASPAsJSON(resp.Body)
-}
-
-func decodeASPAsJSON(r io.Reader) ([]ASPA, error) {
-	dec := json.NewDecoder(r)
-
-	// Seek to the "aspa" field
-	t, err := dec.Token()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read start of JSON: %w", err)
-	}
-	if t != json.Delim('{') {
-		return nil, fmt.Errorf("expected '{', got %v", t)
-	}
-
-	for dec.More() {
-		t, err := dec.Token()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read token: %w", err)
-		}
-		if t == "aspa" {
-			break
-		}
-	}
-
-	t, err = dec.Token()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read start of aspa array: %w", err)
-	}
-	if t != json.Delim('[') {
-		return nil, fmt.Errorf("expected '[', got %v", t)
-	}
-
-	var aspas []ASPA
-	for dec.More() {
-		var a JSONASPA
-		if err := dec.Decode(&a); err != nil {
-			return nil, fmt.Errorf("failed to decode aspa: %w", err)
-		}
-
-		providers := make([]uint32, len(a.Providers))
-		for i, p := range a.Providers {
-			providers[i] = p.ASN
-		}
-		sort.Slice(providers, func(i, j int) bool {
-			return providers[i] < providers[j]
-		})
-		aspas = append(aspas, ASPA{
-			CustomerASN:  a.Customer,
-			ProviderASNs: providers,
-			Expires:      a.Expires,
-		})
-	}
-
-	return aspas, nil
-}
-
-func (s *Server) loadASPAs(ctx context.Context) ([]ASPA, error) {
-	if len(s.aspaURLs) == 0 {
-		return nil, nil
-	}
-
-	var wg sync.WaitGroup
-	aspaCh := make(chan []ASPA, len(s.aspaURLs))
-	errsCh := make(chan error, len(s.aspaURLs))
-
-	fetch := func(url string) {
-		defer wg.Done()
-		s.logger.Debugf("Fetching ASPAs from %s", url)
-		aspas, err := s.fetchASPAsFromURL(ctx, url)
-
-		s.upstreamsMu.Lock()
-		stats, ok := s.upstreams[url]
-		if !ok {
-			stats = &UpstreamStatus{}
-		}
-		stats.LastFetchTime = time.Now()
-		if err != nil {
-			stats.LastFetchSuccess = false
-			stats.ErrorMessage = err.Error()
-			errsCh <- err
-		} else {
-			stats.LastFetchSuccess = true
-			aspaCh <- aspas
-		}
-		s.upstreams[url] = stats
-		s.upstreamsMu.Unlock()
-	}
-
-	wg.Add(len(s.aspaURLs))
-	for _, url := range s.aspaURLs {
-		go fetch(url)
-	}
-	wg.Wait()
-	close(aspaCh)
-	close(errsCh)
-
-	for err := range errsCh {
-		s.logger.Errorf("failed to fetch ASPAs from upstream: %v", err)
-	}
-
-	var allASPASlices [][]ASPA
-	totalASPA := 0
-	for a := range aspaCh {
-		allASPASlices = append(allASPASlices, a)
-		totalASPA += len(a)
-	}
-	combined := make([]ASPA, 0, totalASPA)
-	for _, a := range allASPASlices {
-		combined = append(combined, a...)
-	}
-
-	validASPAs := DeduplicateASPAsInPlace(combined)
-	filteredASPAs := filterExpiredASPAs(validASPAs, time.Now())
-	return filteredASPAs, nil
 }

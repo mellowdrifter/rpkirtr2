@@ -126,15 +126,6 @@ func (c *cache) getState() cacheState {
 	}
 }
 
-func (c *cache) getRoas() []ROA {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	// Return a copy instead of the same slice reference
-	roasCopy := make([]ROA, len(c.roas))
-	copy(roasCopy, c.roas)
-	return roasCopy
-}
 
 func (s *Server) periodicROAUpdater(ctx context.Context) {
 	defer s.wg.Done()

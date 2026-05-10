@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -20,6 +21,10 @@ const (
 )
 
 func main() {
+	// Collect more aggressively and cap RSS growth.
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(350 * 1024 * 1024)
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
