@@ -20,6 +20,7 @@ type Config struct {
 	GRPCAddr   string   `yaml:"grpc_addr"`   // e.g. ":50051"
 	LogLevel   string   `yaml:"log_level"`   // "info", "debug", etc.
 	RPKIURLs   []string `yaml:"rpki_urls"`   // URLs to fetch RPKI data from, e.g. ["http://rpki.example.com/roa.json"]
+	ASPAURLs   []string `yaml:"aspa_urls"`   // URLs to fetch ASPA data from, e.g. ["http://rpki.example.com/aspa.json"]
 	TestMode   bool     `yaml:"test_mode"`
 }
 
@@ -48,7 +49,7 @@ func Load() (*Config, error) {
 
 // LoadWithArgs is like Load but allows passing a custom FlagSet and arguments, mainly for testing.
 func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
-	var urls urlList
+	var urls, aspaUrls urlList
 	var testMode = fs.Bool("testmode", false, "hidden flag for test mode")
 
 	cfg := &Config{
@@ -63,6 +64,7 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	grpcAddr := fs.String("grpc-listen", cfg.GRPCAddr, "gRPC Stats address to listen on (e.g. :50051)")
 	loglevel := fs.String("loglevel", cfg.LogLevel, "Log level (debug, info, warn, error)")
 	fs.Var(&urls, "rpki-url", "RPKI JSON URL (can be specified multiple times)")
+	fs.Var(&aspaUrls, "aspa-url", "ASPA JSON URL (can be specified multiple times)")
 
 	fs.Usage = func() {
 		fmt.Println("Usage:")
@@ -111,6 +113,9 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 		if !setFlags["rpki-url"] && len(fileCfg.RPKIURLs) > 0 {
 			cfg.RPKIURLs = fileCfg.RPKIURLs
 		}
+		if !setFlags["aspa-url"] && len(fileCfg.ASPAURLs) > 0 {
+			cfg.ASPAURLs = fileCfg.ASPAURLs
+		}
 		if !setFlags["testmode"] {
 			cfg.TestMode = fileCfg.TestMode
 		}
@@ -128,6 +133,9 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	}
 	if setFlags["rpki-url"] {
 		cfg.RPKIURLs = urls
+	}
+	if setFlags["aspa-url"] {
+		cfg.ASPAURLs = aspaUrls
 	}
 	if setFlags["testmode"] {
 		cfg.TestMode = *testMode

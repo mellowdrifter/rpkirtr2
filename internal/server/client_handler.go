@@ -133,7 +133,7 @@ func (c *Client) dispatchPDU(pdu protocol.PDU) error {
 	case protocol.ResetQuery:
 		c.logger.Info("Received Reset Query PDU")
 		state := c.cache.getState()
-		c.sendAllROAS(state.roas, state.session, state.serial)
+		c.sendAllData(state.roas, state.aspas, state.session, state.serial)
 	case protocol.SerialQuery:
 		c.logger.Info("Received Serial Query PDU")
 		sqPDU, ok := pdu.(*protocol.SerialQueryPDU)
@@ -172,15 +172,15 @@ func (c *Client) handleSerialQuery(pdu *protocol.SerialQueryPDU) error {
 		return nil
 	}
 
-	addRoa, delRoa, found := c.cache.getDiffsFrom(serial)
+	addRoa, delRoa, addAspa, delAspa, found := c.cache.getDiffsFrom(serial)
 	if !found {
 		c.logger.Infof("Client requested serial %d, current serial is %d. Serial too old or unknown. Sending cache reset.", serial, state.serial)
 		c.sendCacheReset()
 		return nil
 	}
 
-	c.logger.Infof("Client requested serial %d, current serial is %d. Sending %d additions and %d deletions.", serial, state.serial, len(addRoa), len(delRoa))
-	c.sendDiffs(addRoa, delRoa, state.session, state.serial)
+	c.logger.Infof("Client requested serial %d, current serial is %d. Sending %d ROA additions, %d ROA deletions, %d ASPA additions, %d ASPA deletions.", serial, state.serial, len(addRoa), len(delRoa), len(addAspa), len(delAspa))
+	c.sendDiffs(addRoa, delRoa, addAspa, delAspa, state.session, state.serial)
 
 	return nil
 }
@@ -192,7 +192,7 @@ func (c *Client) writePDUUnsafe(pdu protocol.PDU) error {
 	return c.writer.Flush()
 }
 
-func (c *Client) sendDiffs(add, del []ROA, session uint16, serial uint32) {
+func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint16, serial uint32) {
 	c.logger.Info("Sending diffs to client")
 
 	c.writeMu.Lock()
@@ -205,7 +205,7 @@ func (c *Client) sendDiffs(add, del []ROA, session uint16, serial uint32) {
 		return
 	}
 
-	// 2. Send all additions
+	// 2. Send all ROA additions
 	for _, ROA := range add {
 		var pdu protocol.PDU
 		if ROA.Prefix.Addr().Is4() {
@@ -219,7 +219,18 @@ func (c *Client) sendDiffs(add, del []ROA, session uint16, serial uint32) {
 		}
 	}
 
-	// 3. Send all deletions
+	// 3. Send all ASPA additions
+	if c.version >= 1 {
+		for _, aspa := range addAspa {
+			pdu := protocol.NewAspaPDU(c.version, protocol.Announce, aspa.CustomerASN, aspa.ProviderASNs)
+			if err := pdu.Write(c.writer); err != nil {
+				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
+				return
+			}
+		}
+	}
+
+	// 4. Send all ROA deletions
 	for _, ROA := range del {
 		var pdu protocol.PDU
 		if ROA.Prefix.Addr().Is4() {
@@ -233,7 +244,18 @@ func (c *Client) sendDiffs(add, del []ROA, session uint16, serial uint32) {
 		}
 	}
 
-	// 4. Send End of Data
+	// 5. Send all ASPA deletions
+	if c.version >= 1 {
+		for _, aspa := range delAspa {
+			pdu := protocol.NewAspaPDU(c.version, protocol.Withdraw, aspa.CustomerASN, aspa.ProviderASNs)
+			if err := pdu.Write(c.writer); err != nil {
+				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
+				return
+			}
+		}
+	}
+
+	// 6. Send End of Data
 	epdu := protocol.NewEndOfDataPDU(c.version, session, serial, DefaultRefreshInterval, DefaultRetryInterval, DefaultExpireInterval)
 	if err := epdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write End of Data PDU: %v", err)
@@ -258,8 +280,8 @@ func (c *Client) sendCacheReset() {
 	}
 }
 
-func (c *Client) sendAllROAS(roas []ROA, session uint16, serial uint32) {
-	c.logger.Info("Sending all ROAs to client")
+func (c *Client) sendAllData(roas []ROA, aspas []ASPA, session uint16, serial uint32) {
+	c.logger.Info("Sending all ROAs and ASPAs to client")
 
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -285,7 +307,18 @@ func (c *Client) sendAllROAS(roas []ROA, session uint16, serial uint32) {
 		}
 	}
 
-	// 3. End of Data
+	// 3. ASPA PDUs
+	if c.version >= 1 {
+		for _, aspa := range aspas {
+			pdu := protocol.NewAspaPDU(c.version, protocol.Announce, aspa.CustomerASN, aspa.ProviderASNs)
+			if err := pdu.Write(c.writer); err != nil {
+				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
+				return
+			}
+		}
+	}
+
+	// 4. End of Data
 	epdu := protocol.NewEndOfDataPDU(c.version, session, serial, DefaultRefreshInterval, DefaultRetryInterval, DefaultExpireInterval)
 	if err := epdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write End of Data PDU: %v", err)

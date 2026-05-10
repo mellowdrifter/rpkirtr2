@@ -67,6 +67,17 @@ func decipherPDU(data []byte) (PDU, error) {
 
 	switch ptype {
 
+	case SerialNotify:
+		if len(data) < 12 {
+			return nil, fmt.Errorf("SerialNotifyPDU too short: %d bytes", len(data))
+		}
+		snPDU := NewSerialNotifyPDU(
+			Version(data[0]),
+			binary.BigEndian.Uint16(data[2:4]),
+			binary.BigEndian.Uint32(data[8:12]),
+		)
+		return snPDU, nil
+
 	// SerialQuery asks for diffs of ROAs from last serial number.
 	case SerialQuery:
 		if len(data) < 12 {
@@ -192,7 +203,27 @@ func decipherPDU(data []byte) (PDU, error) {
 			binary.BigEndian.Uint32(data[28:32]),
 		), nil
 
-		// Cache server should only ever receive the above three PDUs.
+	case Aspa:
+		if len(data) < 12 {
+			return nil, fmt.Errorf("AspaPDU too short: %d bytes", len(data))
+		}
+		length := binary.BigEndian.Uint32(data[4:8])
+		if len(data) < int(length) {
+			return nil, fmt.Errorf("AspaPDU data shorter than length field: %d < %d", len(data), length)
+		}
+		casn := binary.BigEndian.Uint32(data[8:12])
+		pasnCount := (int(length) - 12) / 4
+		pasns := make([]uint32, pasnCount)
+		for i := 0; i < pasnCount; i++ {
+			pasns[i] = binary.BigEndian.Uint32(data[12+i*4 : 16+i*4])
+		}
+		return NewAspaPDU(
+			Version(data[0]),
+			data[2],
+			casn,
+			pasns,
+		), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported PDU type: %d", ptype)
 	}

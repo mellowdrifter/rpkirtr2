@@ -246,3 +246,93 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 
 	return filteredRoas, nil
 }
+
+func (s *Server) fetchASPAsFromURL(ctx context.Context, url string) ([]ASPA, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
+	}
+
+	var r aspaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("failed to decode json: %w", err)
+	}
+
+	aspas := make([]ASPA, 0, len(r.Aspas))
+	for _, a := range r.Aspas {
+		providers := make([]uint32, len(a.Providers))
+		for i, p := range a.Providers {
+			providers[i] = p.ASN
+		}
+		aspas = append(aspas, ASPA{
+			CustomerASN:  a.Customer,
+			ProviderASNs: providers,
+			Expires:      a.Expires,
+		})
+	}
+
+	return aspas, nil
+}
+
+func (s *Server) loadASPAs(ctx context.Context) ([]ASPA, error) {
+	if len(s.aspaURLs) == 0 {
+		return nil, nil
+	}
+
+	var wg sync.WaitGroup
+	aspaCh := make(chan []ASPA, len(s.aspaURLs))
+	errsCh := make(chan error, len(s.aspaURLs))
+
+	fetch := func(url string) {
+		defer wg.Done()
+		s.logger.Debugf("Fetching ASPAs from %s", url)
+		aspas, err := s.fetchASPAsFromURL(ctx, url)
+
+		s.upstreamsMu.Lock()
+		stats, ok := s.upstreams[url]
+		if !ok {
+			stats = &UpstreamStatus{}
+		}
+		stats.LastFetchTime = time.Now()
+		if err != nil {
+			stats.LastFetchSuccess = false
+			stats.ErrorMessage = err.Error()
+			errsCh <- err
+		} else {
+			stats.LastFetchSuccess = true
+			aspaCh <- aspas
+		}
+		s.upstreams[url] = stats
+		s.upstreamsMu.Unlock()
+	}
+
+	wg.Add(len(s.aspaURLs))
+	for _, url := range s.aspaURLs {
+		go fetch(url)
+	}
+	wg.Wait()
+	close(aspaCh)
+	close(errsCh)
+
+	for err := range errsCh {
+		s.logger.Errorf("failed to fetch ASPAs from upstream: %v", err)
+	}
+
+	combined := []ASPA{}
+	for a := range aspaCh {
+		combined = append(combined, a...)
+	}
+
+	filteredASPAs := filterExpiredASPAs(combined, time.Now())
+	return filteredASPAs, nil
+}

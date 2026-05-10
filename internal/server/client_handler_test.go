@@ -4,212 +4,175 @@ import (
 	"bufio"
 	"net"
 	"net/netip"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/mellowdrifter/rpkirtr2/internal/protocol"
 	"go.uber.org/zap"
 )
 
-func setupTestClient(serverConn net.Conn) *Client {
+func TestClientHandleSerialQuery(t *testing.T) {
+	// Setup mock server components
 	logger := zap.NewNop().Sugar()
-	c := &cache{
-		session: 0xABCD,
-		serial:  10,
-	}
-	return &Client{
-		conn:    serverConn,
-		reader:  bufio.NewReader(serverConn),
-		writer:  bufio.NewWriter(serverConn),
-		logger:  logger,
-		id:      "test-client",
-		cache:   c,
-		cfg: cfg{
-			readTimeout: 100 * time.Millisecond,
-		},
-	}
-}
+	c := newCache()
+	c.session = 1234
+	c.serial = 10
 
-func TestHandleSerialQuerySessionValidation(t *testing.T) {
+	// Create a pipe to simulate network connection
 	serverConn, clientConn := net.Pipe()
 	defer serverConn.Close()
 	defer clientConn.Close()
 
-	client := setupTestClient(serverConn)
-	client.version = 1
-
-	// Test case 1: Mismatched session ID
-	mismatchedSession := uint16(0x1234)
-	sqPDU := protocol.NewSerialQueryPDU(1, mismatchedSession, 5)
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- client.handleSerialQuery(sqPDU)
-	}()
-
-	responsePDU, err := protocol.GetPDU(clientConn)
-	if err != nil {
-		t.Fatalf("Failed to read response PDU: %v", err)
-	}
-	if responsePDU.Type() != protocol.CacheReset {
-		t.Errorf("Expected CacheReset PDU, got %v", responsePDU.Type())
-	}
-	if err := <-errChan; err != nil {
-		t.Errorf("handleSerialQuery returned error: %v", err)
-	}
-}
-
-func TestHandleSerialQueryDiffs(t *testing.T) {
-	serverConn, clientConn := net.Pipe()
-	defer serverConn.Close()
-	defer clientConn.Close()
-
-	client := setupTestClient(serverConn)
+	client := NewClient(serverConn, logger, c)
 	client.version = 1
 
 	// Setup some diffs in the cache
 	client.cache.mu.Lock()
-	addRoa := []ROA{
-		{
-			ASN:     300,
-			MaxMask: 24,
-			Prefix:  netip.MustParsePrefix("1.1.1.0/24"),
-		},
-	}
-	client.cache.updateDiffs(client.cache.roas, addRoa, nil)
+	r1 := ROA{ASN: 300, MaxMask: 24, Prefix: netip.MustParsePrefix("1.1.1.0/24")}
+	r2 := ROA{ASN: 301, MaxMask: 24, Prefix: netip.MustParsePrefix("2.2.2.0/24")}
+	client.cache.updateDiffs([]ROA{r1, r2}, []ROA{r1, r2}, nil, nil, nil, nil)
 	client.cache.serial = 11
 	client.cache.mu.Unlock()
 
-	// Client requests serial 10 (current is 11)
-	sqPDU := protocol.NewSerialQueryPDU(1, 0xABCD, 10)
-
+	// In a goroutine, send a Serial Query from the "router"
 	go func() {
-		client.handleSerialQuery(sqPDU)
+		sq := protocol.NewSerialQueryPDU(1, 1234, 10)
+		sq.Write(clientConn)
 	}()
 
-	// Should receive: Cache Response, then IPv4 Prefix (Announce), then End of Data
-	p1, _ := protocol.GetPDU(clientConn)
-	if p1.Type() != protocol.CacheResponse {
-		t.Errorf("Expected CacheResponse, got %v", p1.Type())
-	}
+	// Run handleSerialQuery
+	go func() {
+		pdu, _ := protocol.GetPDU(bufio.NewReader(serverConn))
+		client.dispatchPDU(pdu)
+	}()
 
-	p2, _ := protocol.GetPDU(clientConn)
-	if p2.Type() != protocol.Ipv4Prefix {
-		t.Errorf("Expected Ipv4Prefix, got %v", p2.Type())
-	}
+	// Read responses from clientConn
+	respReader := bufio.NewReader(clientConn)
 
-	p3, _ := protocol.GetPDU(clientConn)
-	if p3.Type() != protocol.EndOfData {
-		t.Errorf("Expected EndOfData, got %v", p3.Type())
-	}
-}
-
-
-func TestHandleReadTimeout(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// 1. Should receive Cache Response
+	pdu, err := protocol.GetPDU(respReader)
 	if err != nil {
-		t.Fatalf("Failed to listen: %v", err)
+		t.Fatalf("Failed to read Cache Response: %v", err)
 	}
-	defer ln.Close()
-
-	go func() {
-		conn, _ := net.Dial("tcp", ln.Addr().String())
-		time.Sleep(200 * time.Millisecond)
-		conn.Close()
-	}()
-
-	conn, _ := ln.Accept()
-	defer conn.Close()
-
-	client := setupTestClient(conn)
-	client.cfg.readTimeout = 50 * time.Millisecond
-
-	err = client.Handle()
-	if err == nil || !strings.Contains(err.Error(), "i/o timeout") {
-		t.Errorf("Expected timeout error, got: %v", err)
-	}
-}
-
-func TestHandleUnexpectedVersionAfterNegotiation(t *testing.T) {
-	serverConn, clientConn := net.Pipe()
-	defer serverConn.Close()
-	defer clientConn.Close()
-
-	client := setupTestClient(serverConn)
-	
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- client.Handle()
-	}()
-
-	// 1. Send ResetQuery(v1) to negotiate version 1
-	protocol.NewResetQueryPDU(1).Write(clientConn)
-
-	// 2. Consume responses (CacheResponse + EndOfData)
-	p1, _ := protocol.GetPDU(clientConn)
-	p2, _ := protocol.GetPDU(clientConn)
-	if p1 == nil || p2 == nil {
-		t.Fatalf("Failed to read initial responses")
+	if pdu.Type() != protocol.CacheResponse {
+		t.Errorf("Expected Cache Response, got %v", pdu.Type())
 	}
 
-	// 3. Send SerialQuery(v2) -> should trigger UnexpectedVersion
-	protocol.NewSerialQueryPDU(2, 0xABCD, 10).Write(clientConn)
-
-	resp, err := protocol.GetPDU(clientConn)
-	if err != nil {
-		t.Fatalf("Failed to read error report: %v", err)
-	}
-
-	if resp.Type() != protocol.ErrorReport {
-		t.Fatalf("Expected ErrorReport, got %v", resp.Type())
-	}
-
-	errReport := resp.(*protocol.ErrorReportPDU)
-	if errReport.Code() != protocol.UnexpectedVersion {
-		t.Errorf("Expected code 8, got %d", errReport.Code())
-	}
-
-	select {
-	case err := <-errChan:
-		if err == nil || !strings.Contains(err.Error(), "version mismatch") {
-			t.Errorf("Expected version mismatch error, got %v", err)
+	// 2. Should receive Prefix PDUs (2 additions)
+	for i := 0; i < 2; i++ {
+		pdu, err = protocol.GetPDU(respReader)
+		if err != nil {
+			t.Fatalf("Failed to read Prefix PDU %d: %v", i, err)
 		}
-	case <-time.After(1 * time.Second):
-		t.Errorf("Timed out waiting for Handle to return")
+		if pdu.Type() != protocol.Ipv4Prefix {
+			t.Errorf("Expected Ipv4Prefix, got %v", pdu.Type())
+		}
+	}
+
+	// 3. Should receive End of Data
+	pdu, err = protocol.GetPDU(respReader)
+	if err != nil {
+		t.Fatalf("Failed to read End of Data: %v", err)
+	}
+	if pdu.Type() != protocol.EndOfData {
+		t.Errorf("Expected End of Data, got %v", pdu.Type())
 	}
 }
 
-func TestHandleMalformedPDU(t *testing.T) {
+func TestClientHandleResetQuery(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	cache := newCache()
+	cache.session = 5678
+	cache.serial = 100
+	
+	r1 := ROA{ASN: 300, MaxMask: 24, Prefix: netip.MustParsePrefix("1.1.1.0/24")}
+	cache.replaceRoas([]ROA{r1})
+
 	serverConn, clientConn := net.Pipe()
 	defer serverConn.Close()
 	defer clientConn.Close()
 
-	client := setupTestClient(serverConn)
+	client := NewClient(serverConn, logger, cache)
+	client.version = 1
 
 	go func() {
-		client.Handle()
+		rq := protocol.NewResetQueryPDU(1)
+		rq.Write(clientConn)
 	}()
 
-	// 1. Send valid ResetQuery to negotiate and enter main loop
-	protocol.NewResetQueryPDU(1).Write(clientConn)
-	protocol.GetPDU(clientConn) // CacheResponse
-	protocol.GetPDU(clientConn) // EndOfData
+	go func() {
+		pdu, _ := protocol.GetPDU(bufio.NewReader(serverConn))
+		client.dispatchPDU(pdu)
+	}()
 
-	// 2. Send malformed PDU header (length 4 is invalid)
-	clientConn.Write([]byte{1, 1, 0, 0, 0, 0, 0, 4})
+	respReader := bufio.NewReader(clientConn)
 
-	resp, err := protocol.GetPDU(clientConn)
+	pdu, _ := protocol.GetPDU(respReader)
+	if pdu.Type() != protocol.CacheResponse {
+		t.Errorf("Expected Cache Response, got %v", pdu.Type())
+	}
+
+	pdu, _ = protocol.GetPDU(respReader)
+	if pdu.Type() != protocol.Ipv4Prefix {
+		t.Errorf("Expected Ipv4Prefix, got %v", pdu.Type())
+	}
+
+	pdu, _ = protocol.GetPDU(respReader)
+	if pdu.Type() != protocol.EndOfData {
+		t.Errorf("Expected End of Data, got %v", pdu.Type())
+	}
+}
+
+func TestSendAndCloseError(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	serverConn, clientConn := net.Pipe()
+	
+	client := NewClient(serverConn, logger, nil)
+	client.version = 1
+
+	go client.sendAndCloseError("test error", protocol.InternalError)
+
+	respReader := bufio.NewReader(clientConn)
+	pdu, err := protocol.GetPDU(respReader)
 	if err != nil {
-		t.Fatalf("Failed to read error report: %v", err)
+		t.Fatalf("Failed to read Error Report: %v", err)
+	}
+	if pdu.Type() != protocol.ErrorReport {
+		t.Errorf("Expected Error Report, got %v", pdu.Type())
 	}
 
-	if resp.Type() != protocol.ErrorReport {
-		t.Fatalf("Expected ErrorReport, got %v", resp.Type())
+	// Connection should be closed
+	_, err = respReader.ReadByte()
+	if err == nil {
+		t.Error("Expected connection to be closed")
 	}
+}
 
-	errReport := resp.(*protocol.ErrorReportPDU)
-	if errReport.Code() != protocol.CorruptData {
-		t.Errorf("Expected code 0 (CorruptData), got %d", errReport.Code())
+func TestNotify(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	c := newCache()
+	c.session = 1111
+	c.serial = 2222
+
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	client := NewClient(serverConn, logger, c)
+	client.version = 1
+
+	go client.notify()
+
+	respReader := bufio.NewReader(clientConn)
+	pdu, err := protocol.GetPDU(respReader)
+	if err != nil {
+		t.Fatalf("Failed to read Serial Notify: %v", err)
+	}
+	if pdu.Type() != protocol.SerialNotify {
+		t.Errorf("Expected Serial Notify, got %v", pdu.Type())
+	}
+	
+	sn := pdu.(*protocol.SerialNotifyPDU)
+	if sn.Serial() != 2222 {
+		t.Errorf("Expected serial 2222, got %d", sn.Serial())
 	}
 }

@@ -23,6 +23,7 @@ type Server struct {
 
 	clients    map[string]*Client
 	urls       []string
+	aspaURLs   []string
 	cache      *cache
 	httpClient *http.Client
 
@@ -54,8 +55,9 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		logger:  logger,
 		cfg:     cfg,
 		clients: make(map[string]*Client),
-		urls:    cfg.RPKIURLs,
-		cache:   newCache(),
+		urls:       cfg.RPKIURLs,
+		aspaURLs:   cfg.ASPAURLs,
+		cache:      newCache(),
 		wg:      sync.WaitGroup{},
 		httpClient: &http.Client{
 			Timeout: 1 * time.Minute,
@@ -68,15 +70,21 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 func (s *Server) Start() error {
 	ctx := context.Background()
 
-	// Load initial ROAs before listening
+	// Load initial ROAs and ASPAs before listening
 	roas, err := s.loadROAs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load initial ROAs: %w", err)
 	}
+	aspas, err := s.loadASPAs(ctx)
+	if err != nil {
+		s.logger.Warnf("failed to load initial ASPAs: %v", err)
+	}
+
 	s.lock()
 	s.cache.replaceRoas(roas)
+	s.cache.replaceAspas(aspas)
 	s.unlock()
-	s.logger.Infof("Loaded %d initial ROAs", s.cache.count())
+	s.logger.Infof("Loaded %d initial ROAs and %d initial ASPAs", s.cache.count(), len(aspas))
 
 	l, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {

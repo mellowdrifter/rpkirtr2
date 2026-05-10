@@ -48,17 +48,13 @@ func TestCacheRace(t *testing.T) {
 
 			// Handle client in a goroutine
 			go func() {
-				// We don't call client.Handle() because it loops forever.
-				// Instead we just simulate requests.
 				for {
 					select {
 					case <-stop:
 						return
 					default:
-						// Send a Reset Query
-						// In this test, we call the internal methods directly to stress the cache access
 						state := client.cache.getState()
-						client.sendAllROAS(state.roas, state.session, state.serial)
+						client.sendAllData(state.roas, state.aspas, state.session, state.serial)
 						time.Sleep(time.Millisecond * 2)
 					}
 				}
