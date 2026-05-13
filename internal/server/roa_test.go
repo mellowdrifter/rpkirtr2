@@ -222,3 +222,98 @@ func TestDecodeROAsJSON(t *testing.T) {
 		t.Errorf("Decoded ROAs don't match expected.\nGot: %+v\nWant: %+v", roas, expected)
 	}
 }
+
+func TestROAIsValid(t *testing.T) {
+	tests := []struct {
+		name string
+		roa  ROA
+		want bool
+	}{
+		{
+			name: "valid ipv4",
+			roa:  ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 24, ASN: 1},
+			want: true,
+		},
+		{
+			name: "valid ipv4 with maxmask",
+			roa:  ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 32, ASN: 1},
+			want: true,
+		},
+		{
+			name: "valid ipv6",
+			roa:  ROA{Prefix: mustPrefix("2001:db8::/32"), MaxMask: 48, ASN: 1},
+			want: true,
+		},
+		{
+			name: "maxmask < prefix length",
+			roa:  ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 16, ASN: 1},
+			want: false,
+		},
+		{
+			name: "ipv4 maxmask > 32",
+			roa:  ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 33, ASN: 1},
+			want: false,
+		},
+		{
+			name: "ipv6 maxmask > 128",
+			roa:  ROA{Prefix: mustPrefix("2001:db8::/32"), MaxMask: 129, ASN: 1},
+			want: false,
+		},
+		{
+			name: "maxmask == 0",
+			roa:  ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 0, ASN: 1},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.roa.isValid(); got != tt.want {
+				t.Errorf("ROA.isValid() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetSetOfValidatedROAs(t *testing.T) {
+	roa1 := ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 24, ASN: 1}
+	roa1Dup := ROA{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 24, ASN: 1}
+	roa2 := ROA{Prefix: mustPrefix("2.2.2.0/24"), MaxMask: 24, ASN: 2}
+	invalidRoa := ROA{Prefix: mustPrefix("3.3.3.0/24"), MaxMask: 16, ASN: 3}
+
+	tests := []struct {
+		name string
+		roas []ROA
+		want []ROA
+	}{
+		{
+			name: "deduplication",
+			roas: []ROA{roa1, roa1Dup, roa2},
+			want: []ROA{roa1, roa2},
+		},
+		{
+			name: "filtering invalid",
+			roas: []ROA{roa1, invalidRoa, roa2},
+			want: []ROA{roa1, roa2},
+		},
+		{
+			name: "empty input",
+			roas: nil,
+			want: nil,
+		},
+		{
+			name: "all invalid",
+			roas: []ROA{invalidRoa},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetSetOfValidatedROAs(tt.roas)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetSetOfValidatedROAs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

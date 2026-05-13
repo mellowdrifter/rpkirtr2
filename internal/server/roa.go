@@ -100,6 +100,9 @@ func GetSetOfValidatedROAs(roas []ROA) []ROA {
 			i++
 		}
 	}
+	if i == 0 {
+		return nil
+	}
 	return roas[:i]
 }
 
