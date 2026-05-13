@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -182,5 +183,42 @@ func TestAsnToUint32(t *testing.T) {
 				t.Errorf("asnToUint32(%q) = %d, want %d", tt.input, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestDecodeROAsJSON(t *testing.T) {
+	jsonStr := `{
+		"roas": [
+			{
+				"prefix": "1.1.1.0/24",
+				"maxLength": 24,
+				"asn": "AS1",
+				"expires": 1715594400
+			},
+			{
+				"prefix": "2.2.2.0/24",
+				"maxLength": 32,
+				"asn": 2,
+				"expires": 1715594400
+			}
+		]
+	}`
+
+	roas, err := decodeROAsJSON(strings.NewReader(jsonStr))
+	if err != nil {
+		t.Fatalf("decodeROAsJSON failed: %v", err)
+	}
+
+	if len(roas) != 2 {
+		t.Fatalf("Expected 2 ROAs, got %d", len(roas))
+	}
+
+	expected := []ROA{
+		{Prefix: mustPrefix("1.1.1.0/24"), MaxMask: 24, ASN: 1, Expires: 1715594400},
+		{Prefix: mustPrefix("2.2.2.0/24"), MaxMask: 32, ASN: 2, Expires: 1715594400},
+	}
+
+	if !reflect.DeepEqual(roas, expected) {
+		t.Errorf("Decoded ROAs don't match expected.\nGot: %+v\nWant: %+v", roas, expected)
 	}
 }

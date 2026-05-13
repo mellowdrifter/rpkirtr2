@@ -96,6 +96,8 @@ func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, []ASPA, []ASPA, bool)
 	// Aggregate all diffs from startIdx to the end, cancelling opposing operations
 	roaNet := make(map[roaKey]int)
 	roaData := make(map[roaKey]ROA)
+	aspaNet := make(map[uint32]int)
+	aspaData := make(map[uint32]ASPA)
 	var allAdd, allDel []ROA
 	var allAddAspa, allDelAspa []ASPA
 
@@ -110,8 +112,14 @@ func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, []ASPA, []ASPA, bool)
 			roaNet[rk]--
 			roaData[rk] = r
 		}
-		allAddAspa = append(allAddAspa, c.history[i].addAspa...)
-		allDelAspa = append(allDelAspa, c.history[i].delAspa...)
+		for _, a := range c.history[i].addAspa {
+			aspaNet[a.CustomerASN]++
+			aspaData[a.CustomerASN] = a
+		}
+		for _, a := range c.history[i].delAspa {
+			aspaNet[a.CustomerASN]--
+			aspaData[a.CustomerASN] = a
+		}
 	}
 
 	for rk, net := range roaNet {
@@ -119,6 +127,13 @@ func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, []ASPA, []ASPA, bool)
 			allAdd = append(allAdd, roaData[rk])
 		} else if net < 0 {
 			allDel = append(allDel, roaData[rk])
+		}
+	}
+	for asn, net := range aspaNet {
+		if net > 0 {
+			allAddAspa = append(allAddAspa, aspaData[asn])
+		} else if net < 0 {
+			allDelAspa = append(allDelAspa, aspaData[asn])
 		}
 	}
 
@@ -176,7 +191,10 @@ func (s *Server) TriggerRefresh(ctx context.Context) error {
 	}
 	newASPAs, err := s.loadASPAs(ctx)
 	if err != nil {
-		s.logger.Warnf("failed to refresh ASPAs: %v", err)
+		s.logger.Warnf("failed to refresh ASPAs, keeping previous: %v", err)
+		s.rlock()
+		newASPAs = s.cache.aspas
+		s.runlock()
 	}
 	s.updateCache(newROAs, newASPAs)
 	return nil

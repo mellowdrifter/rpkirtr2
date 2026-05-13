@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mellowdrifter/rpkirtr2/internal/protocol"
@@ -29,12 +30,13 @@ type Client struct {
 	logger    *zap.SugaredLogger
 	id        string
 	closeOnce sync.Once
+	closed    atomic.Bool
 	version   protocol.Version
 	cache     *cache
-	cfg       cfg
+	intervals rtrIntervals
 }
 
-type cfg struct {
+type rtrIntervals struct {
 	refreshInterval uint32
 	retryInterval   uint32
 	expireInterval  uint32
@@ -53,7 +55,7 @@ func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, c *cache) *Client {
 		logger: logger,
 		id:     remote,
 		cache:  c,
-		cfg:    *newCfg(),
+		intervals: *newRTRIntervals(),
 	}
 }
 
@@ -62,8 +64,8 @@ func (c *Client) ID() string {
 	return c.id
 }
 
-func newCfg() *cfg {
-	return &cfg{
+func newRTRIntervals() *rtrIntervals {
+	return &rtrIntervals{
 		refreshInterval: DefaultRefreshInterval,
 		retryInterval:   DefaultRetryInterval,
 		expireInterval:  DefaultExpireInterval,
@@ -78,7 +80,7 @@ func (c *Client) Handle() error {
 	c.logger.Info("Client session started")
 
 	// Step 1: Version negotiation
-	c.conn.SetReadDeadline(time.Now().Add(c.cfg.readTimeout))
+	c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
 	ver, err := protocol.Negotiate(c.reader)
 	if err != nil {
 		c.logger.Warnf("Negotiation failed: %v", err)
@@ -90,7 +92,7 @@ func (c *Client) Handle() error {
 	c.version = ver
 
 	// Step 2: Client MUST send either a Reset Query or a Serial Query PDU
-	c.conn.SetReadDeadline(time.Now().Add(c.cfg.readTimeout))
+	c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
 	pdu, err := protocol.GetPDU(c.reader)
 	if err != nil {
 		c.logger.Warnf("Failed to read initial PDU: %v", err)
@@ -104,7 +106,7 @@ func (c *Client) Handle() error {
 
 	// Step 3: Main read-process loop
 	for {
-		c.conn.SetReadDeadline(time.Now().Add(c.cfg.readTimeout))
+		c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
 		pdu, err := protocol.GetPDU(c.reader)
 		if err != nil {
 			if isDisconnectError(err) {
@@ -201,6 +203,7 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 	cpdu := protocol.NewCacheResponsePDU(c.version, session)
 	if err := cpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Response PDU: %v", err)
+		c.Close()
 		return
 	}
 
@@ -214,6 +217,7 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 		}
 		if err != nil {
 			c.logger.Errorf("Failed to write prefix PDU: %v", err)
+			c.Close()
 			return
 		}
 	}
@@ -223,6 +227,7 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 		for _, aspa := range addAspa {
 			if err := protocol.WriteAspa(c.writer, c.version, protocol.Announce, aspa.CustomerASN, aspa.ProviderASNs); err != nil {
 				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
+				c.Close()
 				return
 			}
 		}
@@ -238,6 +243,7 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 		}
 		if err != nil {
 			c.logger.Errorf("Failed to write prefix PDU: %v", err)
+			c.Close()
 			return
 		}
 	}
@@ -247,20 +253,23 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 		for _, aspa := range delAspa {
 			if err := protocol.WriteAspa(c.writer, c.version, protocol.Withdraw, aspa.CustomerASN, aspa.ProviderASNs); err != nil {
 				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
+				c.Close()
 				return
 			}
 		}
 	}
 
 	// 6. Send End of Data
-	epdu := protocol.NewEndOfDataPDU(c.version, session, serial, DefaultRefreshInterval, DefaultRetryInterval, DefaultExpireInterval)
+	epdu := protocol.NewEndOfDataPDU(c.version, session, serial, c.intervals.refreshInterval, c.intervals.retryInterval, c.intervals.expireInterval)
 	if err := epdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write End of Data PDU: %v", err)
+		c.Close()
 		return
 	}
 
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer: %v", err)
+		c.Close()
 		return
 	}
 }
@@ -287,6 +296,7 @@ func (c *Client) sendAllData(roas []ROA, aspas []ASPA, session uint16, serial ui
 	cpdu := protocol.NewCacheResponsePDU(c.version, session)
 	if err := cpdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write Cache Response PDU: %v", err)
+		c.Close()
 		return
 	}
 
@@ -300,6 +310,7 @@ func (c *Client) sendAllData(roas []ROA, aspas []ASPA, session uint16, serial ui
 		}
 		if err != nil {
 			c.logger.Errorf("Failed to write prefix PDU: %v", err)
+			c.Close()
 			return
 		}
 	}
@@ -309,20 +320,23 @@ func (c *Client) sendAllData(roas []ROA, aspas []ASPA, session uint16, serial ui
 		for _, aspa := range aspas {
 			if err := protocol.WriteAspa(c.writer, c.version, protocol.Announce, aspa.CustomerASN, aspa.ProviderASNs); err != nil {
 				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
+				c.Close()
 				return
 			}
 		}
 	}
 
 	// 4. End of Data
-	epdu := protocol.NewEndOfDataPDU(c.version, session, serial, DefaultRefreshInterval, DefaultRetryInterval, DefaultExpireInterval)
+	epdu := protocol.NewEndOfDataPDU(c.version, session, serial, c.intervals.refreshInterval, c.intervals.retryInterval, c.intervals.expireInterval)
 	if err := epdu.Write(c.writer); err != nil {
 		c.logger.Errorf("Failed to write End of Data PDU: %v", err)
+		c.Close()
 		return
 	}
 
 	if err := c.writer.Flush(); err != nil {
 		c.logger.Errorf("Failed to flush writer: %v", err)
+		c.Close()
 		return
 	}
 }
@@ -355,6 +369,7 @@ func isDisconnectError(err error) bool {
 
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
+		c.closed.Store(true)
 		c.logger.Infof("Closing connection to client: %s", c.id)
 		if c.conn != nil {
 			_ = c.conn.Close()
@@ -362,7 +377,14 @@ func (c *Client) Close() {
 	})
 }
 
+func (c *Client) IsClosed() bool {
+	return c.closed.Load()
+}
+
 func (c *Client) notify() {
+	if c.IsClosed() {
+		return
+	}
 	pdu := protocol.NewSerialNotifyPDU(c.version, c.getSession(), c.getSerial())
 
 	c.writeMu.Lock()
@@ -370,6 +392,7 @@ func (c *Client) notify() {
 
 	if err := c.writePDUUnsafe(pdu); err != nil {
 		c.logger.Errorf("Failed to write Serial Notify PDU: %v", err)
+		c.Close()
 	}
 }
 

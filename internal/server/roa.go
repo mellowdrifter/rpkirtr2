@@ -331,7 +331,5 @@ func (s *Server) loadROAs(ctx context.Context) ([]ROA, error) {
 	}
 
 	validRoas := GetSetOfValidatedROAs(combined)
-	filteredRoas := filterExpired(validRoas, time.Now())
-
-	return filteredRoas, nil
+	return validRoas, nil
 }

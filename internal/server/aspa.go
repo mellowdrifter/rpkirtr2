@@ -60,6 +60,10 @@ func aspasEqual(a, b ASPA) bool {
 	return true
 }
 
+func (a ASPA) isValid() bool {
+	return a.CustomerASN != 0 && len(a.ProviderASNs) > 0
+}
+
 // DeduplicateASPAsInPlace sorts and deduplicates the provided slice in-place.
 func DeduplicateASPAsInPlace(aspas []ASPA) []ASPA {
 	if len(aspas) == 0 {
@@ -71,26 +75,16 @@ func DeduplicateASPAsInPlace(aspas []ASPA) []ASPA {
 	})
 
 	i := 0
-	for j := 1; j < len(aspas); j++ {
-		// Compare CustomerASN and ProviderASNs
-		if aspas[j].CustomerASN != aspas[i].CustomerASN || len(aspas[j].ProviderASNs) != len(aspas[i].ProviderASNs) {
-			i++
-			aspas[i] = aspas[j]
+	for j := 0; j < len(aspas); j++ {
+		if !aspas[j].isValid() {
 			continue
 		}
-		match := true
-		for k := range aspas[j].ProviderASNs {
-			if aspas[j].ProviderASNs[k] != aspas[i].ProviderASNs[k] {
-				match = false
-				break
-			}
-		}
-		if !match {
-			i++
+		if i == 0 || !aspasEqual(aspas[j], aspas[i-1]) {
 			aspas[i] = aspas[j]
+			i++
 		}
 	}
-	return aspas[:i+1]
+	return aspas[:i]
 }
 
 // filterExpiredASPAs removes ASPA objects that have already expired, in-place.
@@ -243,6 +237,5 @@ func (s *Server) loadASPAs(ctx context.Context) ([]ASPA, error) {
 	}
 
 	validASPAs := DeduplicateASPAsInPlace(combined)
-	filteredASPAs := filterExpiredASPAs(validASPAs, time.Now())
-	return filteredASPAs, nil
+	return validASPAs, nil
 }

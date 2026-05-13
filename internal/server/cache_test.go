@@ -78,6 +78,12 @@ func TestCacheRotation(t *testing.T) {
 	if len(c.history) != maxHistory {
 		t.Errorf("Expected %d history entries, got %d", maxHistory, len(c.history))
 	}
+
+	// The first 5 entries should be gone. 100 to 104 should be evicted.
+	_, _, _, _, ok := c.getDiffsFrom(100)
+	if ok {
+		t.Error("Expected serial 100 to have been evicted from history")
+	}
 }
 
 func TestDiffCancellation(t *testing.T) {
@@ -96,6 +102,34 @@ func TestDiffCancellation(t *testing.T) {
 
 	// Request diff from 10. Aggregated should be empty.
 	add, del, _, _, ok := c.getDiffsFrom(10)
+	if !ok {
+		t.Fatal("Expected diff from 10 to be found")
+	}
+
+	if len(add) != 0 {
+		t.Errorf("Expected 0 additions, got %d: %v", len(add), add)
+	}
+	if len(del) != 0 {
+		t.Errorf("Expected 0 deletions, got %d: %v", len(del), del)
+	}
+}
+
+func TestASPADiffCancellation(t *testing.T) {
+	c := newCache()
+	c.serial = 10
+
+	aspa1 := ASPA{CustomerASN: 1, ProviderASNs: []uint32{10, 20}}
+
+	// 10 -> 11: Add ASPA1
+	c.updateDiffs(nil, nil, nil, []ASPA{aspa1}, []ASPA{aspa1}, nil)
+	c.incrementSerial()
+
+	// 11 -> 12: Del ASPA1
+	c.updateDiffs(nil, nil, nil, nil, nil, []ASPA{aspa1})
+	c.incrementSerial()
+
+	// Request diff from 10. Aggregated should be empty.
+	_, _, add, del, ok := c.getDiffsFrom(10)
 	if !ok {
 		t.Fatal("Expected diff from 10 to be found")
 	}
