@@ -382,6 +382,7 @@ func (c *Client) IsClosed() bool {
 }
 
 func (c *Client) notify() {
+	// Fast path: skip already-closed clients. A write error below handles the race.
 	if c.IsClosed() {
 		return
 	}
