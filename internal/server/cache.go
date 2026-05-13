@@ -93,14 +93,33 @@ func (c *cache) getDiffsFrom(serial uint32) ([]ROA, []ROA, []ASPA, []ASPA, bool)
 		return nil, nil, nil, nil, false
 	}
 
-	// Aggregate all diffs from startIdx to the end
+	// Aggregate all diffs from startIdx to the end, cancelling opposing operations
+	roaNet := make(map[roaKey]int)
+	roaData := make(map[roaKey]ROA)
 	var allAdd, allDel []ROA
 	var allAddAspa, allDelAspa []ASPA
+
 	for i := startIdx; i < len(c.history); i++ {
-		allAdd = append(allAdd, c.history[i].add...)
-		allDel = append(allDel, c.history[i].del...)
+		for _, r := range c.history[i].add {
+			rk := r.key()
+			roaNet[rk]++
+			roaData[rk] = r
+		}
+		for _, r := range c.history[i].del {
+			rk := r.key()
+			roaNet[rk]--
+			roaData[rk] = r
+		}
 		allAddAspa = append(allAddAspa, c.history[i].addAspa...)
 		allDelAspa = append(allDelAspa, c.history[i].delAspa...)
+	}
+
+	for rk, net := range roaNet {
+		if net > 0 {
+			allAdd = append(allAdd, roaData[rk])
+		} else if net < 0 {
+			allDel = append(allDel, roaData[rk])
+		}
 	}
 
 	return allAdd, allDel, allAddAspa, allDelAspa, true
@@ -234,12 +253,18 @@ func makeASPADiff(new, old []ASPA) aspaDiffResult {
 // UpdateROAs manually triggers a cache update with the provided ROAs,
 // generating diffs and incrementing the serial number. This is primarily for testing.
 func (s *Server) UpdateROAs(roas []ROA) {
-	s.updateCache(roas, s.cache.aspas)
+	s.rlock()
+	aspas := s.cache.aspas
+	s.runlock()
+	s.updateCache(roas, aspas)
 }
 
 // UpdateASPAs manually triggers a cache update with the provided ASPAs.
 func (s *Server) UpdateASPAs(aspas []ASPA) {
-	s.updateCache(s.cache.roas, aspas)
+	s.rlock()
+	roas := s.cache.roas
+	s.runlock()
+	s.updateCache(roas, aspas)
 }
 
 func (s *Server) notifyClients() {
