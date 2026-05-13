@@ -163,7 +163,7 @@ func decodeASPAsJSON(r io.Reader) ([]ASPA, error) {
 		return nil, fmt.Errorf("expected '[', got %v", t)
 	}
 
-	var aspas []ASPA
+	aspas := make([]ASPA, 0, 10_000)
 	for dec.More() {
 		var a JSONASPA
 		if err := dec.Decode(&a); err != nil {

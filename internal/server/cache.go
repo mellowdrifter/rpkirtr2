@@ -10,7 +10,7 @@ const maxHistory = 10
 
 type cache struct {
 	mu sync.RWMutex
-	//TODO: Why not just store the ROAs as prefix PDUs?
+	// TODO(perf): ROAs are re-marshalled into PDUs on every client send. Pre-building PDU bytes at load time would reduce per-client CPU at scale.
 	roas       []ROA
 	aspas      []ASPA
 	history    []diffRecord

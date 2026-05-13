@@ -170,7 +170,6 @@ func makeDiff(new, old []ROA) diffResult {
 	}
 }
 
-// TODO: Any improvements in JSON 1.25 Go?
 func (s *Server) fetchROAsFromURL(ctx context.Context, url string) ([]ROA, error) {
 	// Create HTTP request with context for cancellation/timeouts
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -232,7 +231,7 @@ func decodeROAsJSON(r io.Reader) ([]ROA, error) {
 		return nil, fmt.Errorf("expected '[', got %v", t)
 	}
 
-	var roas []ROA
+	roas := make([]ROA, 0, 500_000)
 	for dec.More() {
 		var r JSONROA
 		if err := dec.Decode(&r); err != nil {
@@ -262,7 +261,6 @@ func filterExpired(roas []ROA, now time.Time) []ROA {
 }
 
 // Some json VRPs contain ASXXX instead of just XXX as the ASN
-// TODO: Use a regex to remove letter instead of assuming its the first two
 func asnToUint32(a string) uint32 {
 	n, err := strconv.Atoi(strings.TrimLeft(a, "ASas"))
 	if err != nil {

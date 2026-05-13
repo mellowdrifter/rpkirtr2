@@ -48,8 +48,6 @@ type UpstreamStatus struct {
 	ErrorMessage     string
 }
 
-const ()
-
 // New creates a new Server instance
 func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 	return &Server{

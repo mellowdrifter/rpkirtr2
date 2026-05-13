@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -17,8 +18,8 @@ func TestCacheRace(t *testing.T) {
 
 	// Initial ROAs
 	c.replaceRoas([]ROA{
-		{ASN: 100, MaxMask: 24},
-		{ASN: 200, MaxMask: 32},
+		{Prefix: netip.MustParsePrefix("100.0.0.0/24"), ASN: 100, MaxMask: 24},
+		{Prefix: netip.MustParsePrefix("200.0.0.0/32"), ASN: 200, MaxMask: 32},
 	})
 
 	var wg sync.WaitGroup
@@ -86,7 +87,7 @@ func TestCacheRace(t *testing.T) {
 			default:
 				c.mu.Lock()
 				c.serial++
-				c.roas = append(c.roas, ROA{ASN: uint32(i + 1000), MaxMask: 24})
+				c.roas = append(c.roas, ROA{Prefix: netip.MustParsePrefix(fmt.Sprintf("10.0.0.%d/32", i)), ASN: uint32(i + 1000), MaxMask: 32})
 				c.mu.Unlock()
 				time.Sleep(time.Millisecond)
 			}

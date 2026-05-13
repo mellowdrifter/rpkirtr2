@@ -21,15 +21,16 @@ const (
 )
 
 func main() {
-	// Collect more aggressively and cap RSS growth.
-	debug.SetGCPercent(50)
-	debug.SetMemoryLimit(350 * 1024 * 1024)
-
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
+
+	// Collect more aggressively than the default to keep baseline memory low.
+	// Operators should set GOMEMLIMIT to ~90% of available container memory.
+	// Example: GOMEMLIMIT=300MiB ./rpkirtr2
+	debug.SetGCPercent(50)
 
 	// Set up logger
 	logger := logging.New(cfg.LogLevel)

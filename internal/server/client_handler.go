@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -344,9 +343,14 @@ func (c *Client) sendAndCloseError(msg string, code protocol.ErrorCode) {
 }
 
 func isDisconnectError(err error) bool {
-	return errors.Is(err, io.EOF) ||
-		strings.Contains(err.Error(), "use of closed network connection") ||
-		strings.Contains(err.Error(), "connection reset by peer")
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+	return false
 }
 
 func (c *Client) Close() {

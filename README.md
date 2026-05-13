@@ -32,6 +32,7 @@ To support environments with limited resources, `rpkirtr2` incorporates advanced
 - **In-Place Deduplication:** ASPA and ROA arrays are deduplicated in-place, filtering out overlapping or duplicate prefixes without allocating extra slices.
 - **Stack-Allocated Struct Keys:** The cache diffing mechanism uses struct-based keys rather than strings. This avoids the cost of string concatenation and subsequent string garbage collection.
 - **Streaming JSON Decoding:** Custom JSON unmarshalers decode values directly into primitive types without allocating intermediate `interface{}`/`map[string]interface{}` boxing.
+- **Operator-Controlled Memory Limits:** The daemon relies on the standard `GOMEMLIMIT` environment variable for memory capping. This allows operators to set a soft ceiling based on their specific environment (e.g., setting `GOMEMLIMIT=300MiB` for a small deployment).
 
 ## Quick Start
 
