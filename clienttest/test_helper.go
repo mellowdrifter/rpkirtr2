@@ -40,6 +40,7 @@ func SetupTestServerWithURLs(t *testing.T, urls []string) (string, *server.Serve
 
 	cfg := &config.Config{
 		ListenAddr:      "127.0.0.1:0", // Random port
+		GRPCAddr:        "127.0.0.1:0",
 		LogLevel:        "error",
 		RPKIURLs:        urls,
 		RefreshInterval: config.DefaultRefreshInterval,

@@ -210,8 +210,17 @@ func decodeROAsJSON(r io.Reader) ([]ROA, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read token: %w", err)
 		}
-		if t == "roas" {
+		key, ok := t.(string)
+		if !ok {
+			continue
+		}
+		if key == "roas" {
 			break
+		}
+		// Skip this key's value to stay in sync
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil, fmt.Errorf("failed to skip value for key %q: %w", key, err)
 		}
 	}
 

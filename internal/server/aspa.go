@@ -141,8 +141,17 @@ func decodeASPAsJSON(r io.Reader) ([]ASPA, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read token: %w", err)
 		}
-		if t == "aspa" {
+		key, ok := t.(string)
+		if !ok {
+			continue
+		}
+		if key == "aspa" {
 			break
+		}
+		// Skip this key's value to stay in sync
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil, fmt.Errorf("failed to skip value for key %q: %w", key, err)
 		}
 	}
 
