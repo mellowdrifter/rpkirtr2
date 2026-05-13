@@ -199,20 +199,14 @@ func makeASPADiff(new, old []ASPA) aspaDiffResult {
 	var addASPA, delASPA []ASPA
 	i, j := 0, 0
 	for i < len(new) && j < len(old) {
-		if new[i].CustomerASN == old[j].CustomerASN && len(new[i].ProviderASNs) == len(old[j].ProviderASNs) {
-			// Check if all providers are the same (they should be sorted)
-			match := true
-			for k := range new[i].ProviderASNs {
-				if new[i].ProviderASNs[k] != old[j].ProviderASNs[k] {
-					match = false
-					break
-				}
+		if new[i].CustomerASN == old[j].CustomerASN {
+			if !aspasEqual(new[i], old[j]) {
+				addASPA = append(addASPA, new[i])
+				delASPA = append(delASPA, old[j])
 			}
-			if match {
-				i++
-				j++
-				continue
-			}
+			i++
+			j++
+			continue
 		}
 
 		if new[i].Less(old[j]) {

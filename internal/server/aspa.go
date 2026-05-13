@@ -45,6 +45,21 @@ func (a ASPA) Less(other ASPA) bool {
 	return false
 }
 
+func aspasEqual(a, b ASPA) bool {
+	if a.CustomerASN != b.CustomerASN {
+		return false
+	}
+	if len(a.ProviderASNs) != len(b.ProviderASNs) {
+		return false
+	}
+	for i := range a.ProviderASNs {
+		if a.ProviderASNs[i] != b.ProviderASNs[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // DeduplicateASPAsInPlace sorts and deduplicates the provided slice in-place.
 func DeduplicateASPAsInPlace(aspas []ASPA) []ASPA {
 	if len(aspas) == 0 {
