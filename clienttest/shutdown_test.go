@@ -12,11 +12,11 @@ func TestGracefulShutdownWithClients(t *testing.T) {
 	// 1. Setup a mock ROA server with a HUGE response to ensure long streaming
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"roas": [`)
-		for i := 0; i < 20000; i++ {
+		for i := 0; i < 200000; i++ {
 			if i > 0 {
 				fmt.Fprintf(w, ",")
 			}
-			fmt.Fprintf(w, `{"prefix": "10.0.%d.%d/32", "maxLength": 32, "asn": 1}`, i/256, i%256)
+			fmt.Fprintf(w, `{"prefix": "10.%d.%d.%d/32", "maxLength": 32, "asn": 1}`, (i>>16)&0xFF, (i>>8)&0xFF, i&0xFF)
 		}
 		fmt.Fprintf(w, `]}`)
 	}))

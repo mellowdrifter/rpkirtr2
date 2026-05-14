@@ -59,11 +59,15 @@ func getPDUBytes(r io.Reader) ([]byte, error) {
 }
 
 func decipherPDU(data []byte) (PDU, error) {
-	if len(data) < 2 {
-		return nil, fmt.Errorf("data too short to contain PDU type: %d bytes", len(data))
+	if len(data) < minPDULength {
+		return nil, fmt.Errorf("data too short to contain PDU header: %d bytes", len(data))
 	}
 
 	ptype := PDUType(data[1])
+	length := binary.BigEndian.Uint32(data[4:8])
+	if len(data) != int(length) {
+		return nil, fmt.Errorf("PDU length mismatch: header says %d, got %d bytes", length, len(data))
+	}
 
 	switch ptype {
 

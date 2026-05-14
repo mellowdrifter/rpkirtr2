@@ -19,6 +19,15 @@ func TestMalformedMidSession(t *testing.T) {
 		t.Fatalf("Send Reset Query failed: %v", err)
 	}
 
+	// Read Cache Response
+	pdu, err := ReadNextPDU(client.conn)
+	if err != nil {
+		t.Fatalf("Read Cache Response failed: %v", err)
+	}
+	if pdu.Type != CacheResponse {
+		t.Fatalf("Expected Cache Response, got type %d", pdu.Type)
+	}
+
 	// Read everything until EOD
 	_, _, err = client.CollectPrefixes()
 	if err != nil {
@@ -31,7 +40,7 @@ func TestMalformedMidSession(t *testing.T) {
 	}
 
 	// 3. Server should respond with Error Report
-	pdu, err := ReadNextPDU(client.conn)
+	pdu, err = ReadNextPDU(client.conn)
 	if err != nil {
 		t.Fatalf("Read response failed: %v", err)
 	}

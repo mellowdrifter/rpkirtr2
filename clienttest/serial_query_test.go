@@ -52,7 +52,7 @@ func TestSerialQueryWrongSession(t *testing.T) {
 	}
 }
 
-func TestSerialQueryZero(t *testing.T) {
+func TestSerialQueryNotInHistory(t *testing.T) {
 	addr := SetupTestServer(t)
 
 	client, err := NewRTRClient(addr, 1*time.Second)
@@ -82,7 +82,8 @@ func TestSerialQueryZero(t *testing.T) {
 		t.Fatalf("CollectPrefixes failed: %v", err)
 	}
 
-	// 4. Send Serial Query with serial 0
+	// 4. Send Serial Query with a serial not in history.
+	// Since our server starts at serial 1, serial 0 is not in history.
 	if err := client.Send(BuildSerialQuery(1, int(sessionID), 0)); err != nil {
 		t.Fatalf("Send Serial Query failed: %v", err)
 	}
@@ -93,6 +94,6 @@ func TestSerialQueryZero(t *testing.T) {
 		t.Fatalf("Read response failed: %v", err)
 	}
 	if pdu.Type != CacheReset {
-		t.Errorf("Expected Cache Reset PDU for serial 0, got type %d", pdu.Type)
+		t.Errorf("Expected Cache Reset PDU for unknown serial 0, got type %d", pdu.Type)
 	}
 }

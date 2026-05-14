@@ -7,6 +7,20 @@ import (
 )
 
 func FuzzMakeDiff(f *testing.F) {
+	// Seed with some basic valid ROA data pairs
+	f.Add([]byte{
+		// ROA 1: 10.0.0.0/24, ASN 1, MaxMask 32
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 0, 24, 0, 0, 0, 1, 32,
+		// ROA 2: 10.0.1.0/24, ASN 2, MaxMask 32
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 1, 0, 24, 0, 0, 0, 2, 32,
+	})
+	f.Add([]byte{
+		// ROA 1: 1.1.1.0/24, ASN 100, MaxMask 24
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 1, 1, 0, 24, 0, 0, 0, 100, 24,
+		// ROA 2: 2.2.2.0/24, ASN 200, MaxMask 24
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 2, 2, 2, 0, 24, 0, 0, 0, 200, 24,
+	})
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		const roaSize = 16 + 1 + 4 + 1
 		if len(data) < roaSize*2 {
@@ -110,6 +124,9 @@ func FuzzMakeASPADiff(f *testing.F) {
 			for i := 0; i < count; i++ {
 				offset := i * aspaSize
 				casn := binary.BigEndian.Uint32(d[offset : offset+4])
+				if casn == 0 {
+					casn = 1
+				}
 				pasn1 := binary.BigEndian.Uint32(d[offset+4 : offset+8])
 				pasn2 := binary.BigEndian.Uint32(d[offset+8 : offset+12])
 				aspas[i] = ASPA{
@@ -117,8 +134,7 @@ func FuzzMakeASPADiff(f *testing.F) {
 					ProviderASNs: []uint32{pasn1, pasn2},
 				}
 			}
-			DeduplicateASPAsInPlace(aspas)
-			return aspas
+			return DeduplicateASPAsInPlace(aspas)
 		}
 
 		newASPAs := genASPAs(splitIdx, data[:splitIdx*aspaSize])

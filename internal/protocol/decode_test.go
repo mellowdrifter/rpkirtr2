@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -124,6 +125,7 @@ func TestDecipherPDU(t *testing.T) {
 				buf[0] = 1                                   // Version
 				buf[1] = byte(SerialQuery)                   // PDU Type
 				binary.BigEndian.PutUint16(buf[2:4], 0x1234) // Session ID
+				binary.BigEndian.PutUint32(buf[4:8], 12)     // Length
 				binary.BigEndian.PutUint32(buf[8:12], 42)    // Serial
 				return buf
 			}(),
@@ -136,6 +138,7 @@ func TestDecipherPDU(t *testing.T) {
 				buf := make([]byte, 8)
 				buf[0] = 1
 				buf[1] = byte(ResetQuery)
+				binary.BigEndian.PutUint32(buf[4:8], 8) // Length
 				return buf
 			}(),
 			wantErr:  false,
@@ -204,46 +207,50 @@ func TestDecipherPDU(t *testing.T) {
 }
 
 func FuzzProtocolRoundTrip(f *testing.F) {
-	// Seed with a few PDU types
-	f.Add(uint8(1), uint8(ResetQuery), uint16(1234), uint32(0))
-	f.Add(uint8(2), uint8(SerialQuery), uint16(5678), uint32(42))
+	// Seed with some valid PDU bytes for various types
+	// SerialQuery (Version 1, Session 1, Serial 1)
+	f.Add([]byte{1, 1, 0, 1, 0, 0, 0, 12, 0, 0, 0, 1})
+	// ResetQuery (Version 1)
+	f.Add([]byte{1, 2, 0, 0, 0, 0, 0, 8})
+	// Ipv4Prefix (Version 1, Prefix 1.2.3.0/24, ASN 100, MaxMask 24)
+	f.Add([]byte{1, 4, 0, 0, 0, 0, 0, 20, 1, 24, 24, 0, 1, 2, 3, 0, 0, 0, 0, 100})
+	// EndOfData (Version 1, Session 1, Serial 1, Refresh 3600, Retry 600, Expire 7200)
+	f.Add([]byte{1, 7, 0, 1, 0, 0, 0, 24, 0, 0, 0, 1, 0, 0, 14, 16, 0, 0, 2, 88, 0, 0, 28, 32})
+	// Aspa (Version 1, Flags 1, CASN 1234, PASN 100)
+	f.Add([]byte{1, 11, 1, 0, 0, 0, 0, 16, 0, 0, 4, 210, 0, 0, 0, 100})
 
-	f.Fuzz(func(t *testing.T, version, ptype uint8, session uint16, serial uint32) {
-		var pdu PDU
-		ver := Version(version)
-		switch PDUType(ptype) {
-		case SerialNotify:
-			pdu = NewSerialNotifyPDU(ver, session, serial)
-		case SerialQuery:
-			pdu = NewSerialQueryPDU(ver, session, serial)
-		case ResetQuery:
-			pdu = NewResetQueryPDU(ver)
-		case CacheResponse:
-			pdu = NewCacheResponsePDU(ver, session)
-		case CacheReset:
-			pdu = NewCacheResetPDU(ver)
-		case EndOfData:
-			pdu = NewEndOfDataPDU(ver, session, serial, 3600, 600, 7200)
-		default:
-			return // Skip unsupported or complex types for this simple round-trip
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// 1. Try to decode the PDU from input data
+		pdu, err := decipherPDU(data)
+		if err != nil {
+			// Not a valid PDU, skip
+			return
 		}
 
+		// 2. Marshal the PDU back to bytes
 		var buf bytes.Buffer
 		if err := pdu.Write(&buf); err != nil {
-			t.Fatalf("failed to write PDU: %v", err)
+			t.Fatalf("Failed to write PDU type %d: %v", pdu.Type(), err)
 		}
 
-		got, err := decipherPDU(buf.Bytes())
+		// 3. Decode the marshaled bytes
+		pdu2, err := decipherPDU(buf.Bytes())
 		if err != nil {
-			t.Fatalf("failed to decipher PDU: %v", err)
+			t.Fatalf("Failed to decode marshaled PDU type %d: %v", pdu.Type(), err)
 		}
 
-		// Use Type() and Session() etc. to compare since underlying types might differ slightly
-		if got.Type() != pdu.Type() {
-			t.Errorf("type mismatch: got %v, want %v", got.Type(), pdu.Type())
+		// 4. Compare original and second PDU
+		// reflect.DeepEqual works well here because decipherPDU and Write are symmetric.
+		if !reflect.DeepEqual(pdu, pdu2) {
+			t.Errorf("Round-trip mismatch for PDU type %d\nOriginal: %+v\nDecoded:  %+v", pdu.Type(), pdu, pdu2)
 		}
-		if got.Version() != pdu.Version() {
-			t.Errorf("version mismatch: got %v, want %v", got.Version(), pdu.Version())
+
+		// 5. Verify the marshaled length matches the PDU length header
+		if buf.Len() >= 8 {
+			gotLen := binary.BigEndian.Uint32(buf.Bytes()[4:8])
+			if int(gotLen) != buf.Len() {
+				t.Errorf("PDU length header %d does not match written length %d for type %d", gotLen, buf.Len(), pdu.Type())
+			}
 		}
 	})
 }
