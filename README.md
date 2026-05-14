@@ -1,7 +1,7 @@
 # rpkirtr2
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/mellowdrifter/rpkirtr2)](https://goreportcard.com/report/github.com/mellowdrifter/rpkirtr2)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 ![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
 
 A high-performance, production-grade RPKI-to-Router (RTR) server written in Go. Implements RTR Version 2 ([draft-ietf-sidrops-8210bis](https://datatracker.ietf.org/doc/draft-ietf-sidrops-8210bis/)) with full backward compatibility for RTR Version 1 ([RFC 8210](https://www.rfc-editor.org/rfc/rfc8210)) and RTR Version 0 ([RFC 6810](https://www.rfc-editor.org/rfc/rfc6810)).
@@ -509,4 +509,4 @@ The `asn` field may be either a string (`"AS64496"`) or an integer (`64496`). Bo
 
 ## License
 
-Apache 2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
