@@ -223,7 +223,7 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 	}
 
 	// 3. Send all ASPA additions
-	if c.version >= 1 {
+	if c.version >= 2 {
 		for _, aspa := range addAspa {
 			if err := protocol.WriteAspa(c.writer, c.version, protocol.Announce, aspa.CustomerASN, aspa.ProviderASNs); err != nil {
 				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
@@ -249,7 +249,7 @@ func (c *Client) sendDiffs(add, del []ROA, addAspa, delAspa []ASPA, session uint
 	}
 
 	// 5. Send all ASPA deletions
-	if c.version >= 1 {
+	if c.version >= 2 {
 		for _, aspa := range delAspa {
 			if err := protocol.WriteAspa(c.writer, c.version, protocol.Withdraw, aspa.CustomerASN, aspa.ProviderASNs); err != nil {
 				c.logger.Errorf("Failed to write ASPA PDU: %v", err)
@@ -316,7 +316,7 @@ func (c *Client) sendAllData(roas []ROA, aspas []ASPA, session uint16, serial ui
 	}
 
 	// 3. ASPA PDUs
-	if c.version >= 1 {
+	if c.version >= 2 {
 		for _, aspa := range aspas {
 			if err := protocol.WriteAspa(c.writer, c.version, protocol.Announce, aspa.CustomerASN, aspa.ProviderASNs); err != nil {
 				c.logger.Errorf("Failed to write ASPA PDU: %v", err)

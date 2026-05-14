@@ -265,7 +265,7 @@ func filterExpired(roas []ROA, now time.Time) []ROA {
 
 // Some json VRPs contain ASXXX instead of just XXX as the ASN
 func asnToUint32(a string) uint32 {
-	n, err := strconv.Atoi(strings.TrimLeft(a, "ASas"))
+	n, err := strconv.ParseUint(strings.TrimLeft(a, "ASas"), 10, 32)
 	if err != nil {
 		return 0
 	}

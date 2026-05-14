@@ -79,7 +79,7 @@ func DeduplicateASPAsInPlace(aspas []ASPA) []ASPA {
 		if !aspas[j].isValid() {
 			continue
 		}
-		if i == 0 || !aspasEqual(aspas[j], aspas[i-1]) {
+		if i == 0 || aspas[j].CustomerASN != aspas[i-1].CustomerASN {
 			aspas[i] = aspas[j]
 			i++
 		}

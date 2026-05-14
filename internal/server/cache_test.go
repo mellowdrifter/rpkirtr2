@@ -141,3 +141,61 @@ func TestASPADiffCancellation(t *testing.T) {
 		t.Errorf("Expected 0 deletions, got %d: %v", len(del), del)
 	}
 }
+
+func TestHistorySizeInvariant(t *testing.T) {
+	c := newCache()
+	for i := 0; i < maxHistory*3; i++ {
+		c.updateDiffs(nil, nil, nil, nil, nil, nil)
+		if len(c.history) > maxHistory {
+			t.Fatalf("At step %d, history size %d exceeded maxHistory %d", i, len(c.history), maxHistory)
+		}
+	}
+}
+
+func TestGetDiffsFromInvariants(t *testing.T) {
+	c := newCache()
+	c.serial = 100
+	roa1 := ROA{Prefix: netip.MustParsePrefix("1.1.1.0/24"), ASN: 1, MaxMask: 24}
+
+	// 1. Add roa1
+	c.updateDiffs([]ROA{roa1}, []ROA{roa1}, nil, nil, nil, nil)
+	c.serial++
+
+	// 2. Delete roa1
+	c.updateDiffs(nil, nil, []ROA{roa1}, nil, nil, nil)
+	c.serial++
+
+	// 3. Add roa1 again
+	c.updateDiffs([]ROA{roa1}, []ROA{roa1}, nil, nil, nil, nil)
+	c.serial++
+
+	// Diff from 100 should only have roa1 in addRoa, and nothing in delRoa
+	add, del, _, _, ok := c.getDiffsFrom(100)
+	if !ok {
+		t.Fatal("expected diff")
+	}
+
+	for _, a := range add {
+		for _, d := range del {
+			if a.key() == d.key() {
+				t.Errorf("ROA %v is in both add and del", a)
+			}
+		}
+	}
+
+	// For roa1, it was added (100-101), deleted (101-102), added (102-103)
+	// Net should be added.
+	found := false
+	for _, r := range add {
+		if r.key() == roa1.key() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("roa1 should be in aggregated additions")
+	}
+	if len(del) != 0 {
+		t.Errorf("expected 0 deletions, got %d", len(del))
+	}
+}

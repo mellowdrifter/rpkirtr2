@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustPrefix(s string) netip.Prefix {
@@ -174,6 +175,9 @@ func TestAsnToUint32(t *testing.T) {
 		{"empty", "", 0},
 		{"garbage", "ASabc", 0},
 		{"just AS", "AS", 0},
+		{"AS0", "AS0", 0},
+		{"overflow uint32", "4294967296", 0},
+		{"large value", "5000000000", 0},
 	}
 
 	for _, tt := range tests {
@@ -317,3 +321,71 @@ func TestGetSetOfValidatedROAs(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterExpired(t *testing.T) {
+	now := time.Unix(1000, 0)
+
+	tests := []struct {
+		name string
+		roas []ROA
+		want []ROA
+	}{
+		{
+			name: "all valid",
+			roas: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 2000},
+				{Prefix: mustPrefix("2.2.2.0/24"), Expires: 3000},
+			},
+			want: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 2000},
+				{Prefix: mustPrefix("2.2.2.0/24"), Expires: 3000},
+			},
+		},
+		{
+			name: "all expired",
+			roas: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 500},
+				{Prefix: mustPrefix("2.2.2.0/24"), Expires: 600},
+			},
+			want: []ROA{},
+		},
+		{
+			name: "mixed valid/expired",
+			roas: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 2000},
+				{Prefix: mustPrefix("2.2.2.0/24"), Expires: 500},
+			},
+			want: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 2000},
+			},
+		},
+		{
+			name: "expires 0 passthrough",
+			roas: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 0},
+				{Prefix: mustPrefix("2.2.2.0/24"), Expires: 2000},
+			},
+			want: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 0},
+				{Prefix: mustPrefix("2.2.2.0/24"), Expires: 2000},
+			},
+		},
+		{
+			name: "exactly at boundary (should be expired)",
+			roas: []ROA{
+				{Prefix: mustPrefix("1.1.1.0/24"), Expires: 1000},
+			},
+			want: []ROA{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterExpired(tt.roas, now)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("filterExpired() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+

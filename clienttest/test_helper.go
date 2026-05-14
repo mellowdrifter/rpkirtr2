@@ -74,3 +74,43 @@ func SetupTestServerWithURLs(t *testing.T, urls []string) (string, *server.Serve
 
 	return addr, srv
 }
+
+// SetupTestServerWithAllURLs starts a local RPKI-RTR server with both ROA and ASPA upstream URLs.
+func SetupTestServerWithAllURLs(t *testing.T, roaURLs, aspaURLs []string) (string, *server.Server) {
+	t.Helper()
+
+	cfg := &config.Config{
+		ListenAddr:      "127.0.0.1:0",
+		GRPCAddr:        "127.0.0.1:0",
+		LogLevel:        "error",
+		RPKIURLs:        roaURLs,
+		ASPAURLs:        aspaURLs,
+		RefreshInterval: config.DefaultRefreshInterval,
+	}
+	logger := zap.NewNop().Sugar()
+
+	srv := server.New(cfg, logger)
+
+	if len(roaURLs) > 0 || len(aspaURLs) > 0 {
+		if err := srv.TriggerRefresh(context.Background()); err != nil {
+			t.Fatalf("Failed to load initial data: %v", err)
+		}
+	}
+
+	l, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	addr := l.Addr().String()
+
+	go func() {
+		if err := srv.ServeListener(l); err != nil {
+		}
+	}()
+
+	t.Cleanup(func() {
+		srv.Stop(1 * time.Second)
+	})
+
+	return addr, srv
+}

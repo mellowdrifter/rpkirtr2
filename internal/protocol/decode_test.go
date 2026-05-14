@@ -22,13 +22,28 @@ func FuzzDecipherPDU(f *testing.F) {
 		0, 0, 0, 12,
 		0, 0, 0, 99,
 	})
-	// Aspa PDU
+	// Aspa PDU - valid
 	f.Add([]byte{
 		1, byte(Aspa),
-		1, 0, // flags, zero
-		0, 0, 0, 16, // length
+		1, 0, // flags (announce), zero
+		0, 0, 0, 16, // length (8+4+4)
 		0, 0, 4, 210, // casn 1234
 		0, 0, 0, 100, // pasn 100
+	})
+	// Aspa PDU - 0 providers
+	f.Add([]byte{
+		1, byte(Aspa),
+		1, 0,
+		0, 0, 0, 12,
+		0, 0, 4, 210,
+	})
+	// Aspa PDU - mismatched length (declared length > actual bytes)
+	f.Add([]byte{
+		1, byte(Aspa),
+		1, 0,
+		0, 0, 0, 20, // declared 20, but only 16 bytes provided
+		0, 0, 4, 210,
+		0, 0, 0, 100,
 	})
 	// RouterKey PDU
 	f.Add([]byte{
@@ -186,4 +201,49 @@ func TestDecipherPDU(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzProtocolRoundTrip(f *testing.F) {
+	// Seed with a few PDU types
+	f.Add(uint8(1), uint8(ResetQuery), uint16(1234), uint32(0))
+	f.Add(uint8(2), uint8(SerialQuery), uint16(5678), uint32(42))
+
+	f.Fuzz(func(t *testing.T, version, ptype uint8, session uint16, serial uint32) {
+		var pdu PDU
+		ver := Version(version)
+		switch PDUType(ptype) {
+		case SerialNotify:
+			pdu = NewSerialNotifyPDU(ver, session, serial)
+		case SerialQuery:
+			pdu = NewSerialQueryPDU(ver, session, serial)
+		case ResetQuery:
+			pdu = NewResetQueryPDU(ver)
+		case CacheResponse:
+			pdu = NewCacheResponsePDU(ver, session)
+		case CacheReset:
+			pdu = NewCacheResetPDU(ver)
+		case EndOfData:
+			pdu = NewEndOfDataPDU(ver, session, serial, 3600, 600, 7200)
+		default:
+			return // Skip unsupported or complex types for this simple round-trip
+		}
+
+		var buf bytes.Buffer
+		if err := pdu.Write(&buf); err != nil {
+			t.Fatalf("failed to write PDU: %v", err)
+		}
+
+		got, err := decipherPDU(buf.Bytes())
+		if err != nil {
+			t.Fatalf("failed to decipher PDU: %v", err)
+		}
+
+		// Use Type() and Session() etc. to compare since underlying types might differ slightly
+		if got.Type() != pdu.Type() {
+			t.Errorf("type mismatch: got %v, want %v", got.Type(), pdu.Type())
+		}
+		if got.Version() != pdu.Version() {
+			t.Errorf("version mismatch: got %v, want %v", got.Version(), pdu.Version())
+		}
+	})
 }

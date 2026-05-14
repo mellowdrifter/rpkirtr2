@@ -1,7 +1,11 @@
 package clienttest
 
 import (
+	"context"
+	"fmt"
 	"math/rand"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -117,3 +121,65 @@ func TestStressNewClients(t *testing.T) {
 
 	t.Log("All goroutines completed")
 }
+
+func TestConcurrentUpdateAndResetQuery(t *testing.T) {
+	// 1. Setup a mock ROA server with a large-ish response to prolong streaming
+	var mu sync.Mutex
+	asn := 1
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		currentASN := asn
+		mu.Unlock()
+
+		// Send 1000 ROAs
+		fmt.Fprintf(w, `{"roas": [`)
+		for i := 0; i < 1000; i++ {
+			if i > 0 {
+				fmt.Fprintf(w, ",")
+			}
+			fmt.Fprintf(w, `{"prefix": "10.0.%d.%d/32", "maxLength": 32, "asn": %d}`, i/256, i%256, currentASN)
+		}
+		fmt.Fprintf(w, `]}`)
+	}))
+	defer ts.Close()
+
+	addr, srv := SetupTestServerWithURLs(t, []string{ts.URL})
+
+	// 2. Start a client and send Reset Query
+	client, err := NewRTRClient(addr, 1*time.Second)
+	if err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Send(BuildResetQuery(1)); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+
+	// 3. In parallel, trigger multiple cache updates
+	done := make(chan bool)
+	go func() {
+		for i := 0; i < 5; i++ {
+			mu.Lock()
+			asn++
+			mu.Unlock()
+			if err := srv.TriggerRefresh(context.Background()); err != nil {
+				t.Errorf("TriggerRefresh failed: %v", err)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		done <- true
+	}()
+
+	// 4. Collect data from the client
+	prefixes, _, err := client.CollectPrefixes()
+	if err != nil {
+		t.Errorf("CollectPrefixes failed: %v", err)
+	}
+	if len(prefixes) != 1000 {
+		t.Errorf("Expected 1000 prefixes, got %d", len(prefixes))
+	}
+
+	<-done
+}
+

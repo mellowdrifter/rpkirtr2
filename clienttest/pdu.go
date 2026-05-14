@@ -17,6 +17,8 @@ const (
 	Ipv6Prefix    = 6
 	EndOfDataType = 7
 	CacheReset    = 8
+	ErrorReport   = 10
+	Aspa          = 11
 )
 
 type ReceivedROA struct {
