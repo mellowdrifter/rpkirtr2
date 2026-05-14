@@ -117,8 +117,13 @@ func decipherPDU(data []byte) (PDU, error) {
 		}
 
 		textLen := binary.BigEndian.Uint32(data[12+pduLen : 12+pduLen+4])
+		totalExpected := 12 + pduLen + 4 + textLen
 
-		if textLen > uint32(len(data)) || int(12+pduLen+4+textLen) > len(data) {
+		if totalExpected != length {
+			return nil, fmt.Errorf("ErrorReportPDU length mismatch: header says %d, calculated %d", length, totalExpected)
+		}
+
+		if textLen > uint32(len(data)) || int(totalExpected) > len(data) {
 			return nil, fmt.Errorf("ErrorReportPDU invalid textLen: %d", textLen)
 		}
 
@@ -217,8 +222,8 @@ func decipherPDU(data []byte) (PDU, error) {
 			return nil, fmt.Errorf("AspaPDU data shorter than length field: %d < %d", len(data), length)
 		}
 		casn := binary.BigEndian.Uint32(data[8:12])
-		if length < 12 {
-			return nil, fmt.Errorf("AspaPDU length too short: %d", length)
+		if length < 12 || (length-12)%4 != 0 {
+			return nil, fmt.Errorf("AspaPDU length too short or not a multiple of 4: %d", length)
 		}
 		pasnCount := (int(length) - 12) / 4
 		pasns := make([]uint32, pasnCount)
