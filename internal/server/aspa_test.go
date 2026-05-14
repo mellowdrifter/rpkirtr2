@@ -291,6 +291,3 @@ func TestMakeASPADiff(t *testing.T) {
 		})
 	}
 }
-
-
-

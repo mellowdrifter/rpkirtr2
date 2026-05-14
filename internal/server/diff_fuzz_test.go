@@ -31,10 +31,10 @@ func FuzzMakeDiff(f *testing.F) {
 		if totalROAs > 50 {
 			totalROAs = 50
 		}
-		
+
 		// Split data into two sets
 		splitIdx := totalROAs / 2
-		
+
 		genROAs := func(count int, d []byte) []ROA {
 			roas := make([]ROA, count)
 			for i := 0; i < count; i++ {
@@ -90,7 +90,7 @@ func FuzzMakeDiff(f *testing.F) {
 				t.Errorf("Deleted ROA %v still in new set", r)
 			}
 		}
-		
+
 		// Check overlap between add and del
 		addMap := make(map[roaKey]bool)
 		for _, r := range diff.addRoa {
@@ -160,7 +160,7 @@ func FuzzMakeASPADiff(f *testing.F) {
 			if !aspasEqual(a, na) {
 				t.Errorf("Added ASPA %v mismatch with new set %v", a, na)
 			}
-			
+
 			oa, ok := oldMap[a.CustomerASN]
 			if ok && aspasEqual(a, oa) {
 				t.Errorf("Added ASPA %v was already identical in old set", a)
@@ -174,7 +174,7 @@ func FuzzMakeASPADiff(f *testing.F) {
 			if !aspasEqual(a, oa) {
 				t.Errorf("Deleted ASPA %v mismatch with old set %v", a, oa)
 			}
-			
+
 			na, ok := newMap[a.CustomerASN]
 			if ok && aspasEqual(a, na) {
 				t.Errorf("Deleted ASPA %v is still identical in new set", a)

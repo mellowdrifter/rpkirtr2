@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-
 func TestSerialQueryWrongSession(t *testing.T) {
 	addr := SetupTestServer(t)
 

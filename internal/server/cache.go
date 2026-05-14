@@ -160,7 +160,6 @@ func (c *cache) getState() cacheState {
 	}
 }
 
-
 func (s *Server) periodicROAUpdater(ctx context.Context) {
 	defer s.wg.Done()
 	if s.cfg.RefreshInterval == 0 {

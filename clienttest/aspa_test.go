@@ -35,7 +35,7 @@ func TestASPAEndToEnd(t *testing.T) {
 	defer client.Close()
 
 	// 4. Send Reset Query
-	err = client.Send(BuildResetQuery(1)) // version 1 (RTR v2)
+	err = client.Send(BuildResetQuery(2)) // version 2 (RTR v2)
 	require.NoError(t, err)
 
 	// 5. Verify ASPA PDU is received
@@ -74,7 +74,7 @@ func TestASPADiff(t *testing.T) {
 	defer client.Close()
 
 	// 1. Get initial state
-	err = client.Send(BuildResetQuery(1))
+	err = client.Send(BuildResetQuery(2))
 	require.NoError(t, err)
 
 	var sessionID uint16
@@ -100,7 +100,7 @@ func TestASPADiff(t *testing.T) {
 	srv.UpdateASPAs(newASPAs)
 
 	// 3. Serial Query
-	err = client.Send(BuildSerialQuery(1, int(sessionID), int(serial)))
+	err = client.Send(BuildSerialQuery(2, int(sessionID), int(serial)))
 	require.NoError(t, err)
 
 	// 4. Expect Serial Notify or just the response

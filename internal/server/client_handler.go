@@ -49,12 +49,12 @@ func NewClient(conn net.Conn, baseLogger *zap.SugaredLogger, c *cache) *Client {
 	logger := baseLogger.With("client", remote)
 
 	return &Client{
-		conn:   conn,
-		reader: bufio.NewReader(conn),
-		writer: bufio.NewWriter(conn),
-		logger: logger,
-		id:     remote,
-		cache:  c,
+		conn:      conn,
+		reader:    bufio.NewReader(conn),
+		writer:    bufio.NewWriter(conn),
+		logger:    logger,
+		id:        remote,
+		cache:     c,
 		intervals: *newRTRIntervals(),
 	}
 }

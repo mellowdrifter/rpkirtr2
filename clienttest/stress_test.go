@@ -182,4 +182,3 @@ func TestConcurrentUpdateAndResetQuery(t *testing.T) {
 
 	<-done
 }
-
