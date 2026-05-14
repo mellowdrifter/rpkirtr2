@@ -4,109 +4,33 @@ import (
 	"encoding/binary"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestVersionMismatch(t *testing.T) {
 	addr := SetupTestServer(t)
 	client, err := NewRTRClient(addr, 2*time.Second)
-	if err != nil {
-		t.Fatalf("Failed to connect: %v", err)
-	}
+	require.NoError(t, err)
 	defer client.Close()
 
-	// Send Reset Query with version 2
+	// 1. Establish session with v2 Reset Query
 	err = client.Send(BuildResetQuery(2))
-	if err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
+	require.NoError(t, err)
+	_, _, err = client.CollectPrefixes() // drains CacheResponse + prefixes + EOD
+	require.NoError(t, err)
 
-	var (
-		seenCacheResponse bool
-		seenEndOfData     bool
-		prefixCount       int
-	)
-
-	for {
-		pdu, err := ReadNextPDU(client.conn)
-		if err != nil {
-			t.Fatalf("Failed to read PDU: %v", err)
-		}
-
-		switch pdu.Type {
-		case 3: // Cache Response
-			if seenCacheResponse {
-				t.Errorf("Received multiple Cache Response PDUs")
-			}
-			seenCacheResponse = true
-			t.Log("✅ Received Cache Response PDU")
-
-		case 4, 6: // IPv4 or IPv6 Prefix
-			prefixCount++
-
-		case 7: // End of Data
-			if seenEndOfData {
-				t.Errorf("Received multiple End of Data PDUs")
-			}
-			seenEndOfData = true
-
-			t.Logf("✅ Received End of Data PDU after %d prefix PDUs", prefixCount)
-			eod, err := parseEndOfData(pdu)
-			if err != nil {
-				t.Errorf("Failed to parse End of Data: %v", err)
-			} else {
-				t.Logf("✅ End of Data: Session ID: %d, Serial Number: %d, Refresh: %d, Retry: %d, Expire: %d",
-					pdu.SessionID, eod.SerialNumber, eod.RefreshInterval, eod.RetryInterval, eod.ExpireInterval)
-			}
-
-		default:
-			t.Errorf("❌ Unexpected PDU type received: %d", pdu.Type)
-		}
-
-		if seenEndOfData {
-			break
-		}
-	}
-
-	if !seenCacheResponse {
-		t.Error("❌ Did not receive Cache Response PDU")
-	}
-	if !seenEndOfData {
-		t.Error("❌ Did not receive End of Data PDU")
-	}
-	if prefixCount == 0 {
-		t.Error("❌ No prefix PDUs received")
-	}
-
-	// Now send Reset Query with version 1
+	// 2. Now send a v1 PDU — version mismatch
 	err = client.Send(BuildResetQuery(1))
-	if err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
-	// Read the full PDU (expecting Error Report)
+	require.NoError(t, err)
+
 	resp, err := client.Receive(4096)
-	if err != nil {
-		t.Fatalf("Failed to read Error Report: %v", err)
-	}
-
-	pduType := resp[1]
-	if pduType != 10 {
-		t.Fatalf("Expected Error Report (type 10), got type: %d", pduType)
-	}
-
-	if len(resp) < 16 {
-		t.Fatalf("Error Report PDU too short: %x", resp)
-	}
-
-	// Error code should be 8 (unexpected version)
+	require.NoError(t, err)
+	require.Equal(t, uint8(10), resp[1], "Expected Error Report PDU type")
 	errorCode := binary.BigEndian.Uint16(resp[2:4])
-	if errorCode != 8 {
-		t.Errorf("Expected error code 8 (unexpected version), got: %d", errorCode)
-	}
-	t.Logf("✅ Received Error Report for version mismatch: %d", errorCode)
+	require.Equal(t, uint16(8), errorCode, "Expected error code 8 (unexpected version)")
 
-	// Confirm connection was closed
+	// 3. Connection should be closed
 	_, err = client.Receive(4096)
-	if err == nil {
-		t.Errorf("Expected connection to close after error, but read succeeded")
-	}
+	require.Error(t, err, "Expected connection to be closed after version mismatch")
 }

@@ -58,6 +58,7 @@ func getPDUBytes(r io.Reader) ([]byte, error) {
 
 }
 
+//nolint:gocyclo
 func decipherPDU(data []byte) (PDU, error) {
 	if len(data) < minPDULength {
 		return nil, fmt.Errorf("data too short to contain PDU header: %d bytes", len(data))

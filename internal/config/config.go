@@ -104,30 +104,45 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 		}
 
 		// Merge fileCfg into cfg if flags weren't set
-		if !setFlags["listen"] && fileCfg.ListenAddr != "" {
-			cfg.ListenAddr = fileCfg.ListenAddr
-		}
-		if !setFlags["grpc-listen"] && fileCfg.GRPCAddr != "" {
-			cfg.GRPCAddr = fileCfg.GRPCAddr
-		}
-		if !setFlags["loglevel"] && fileCfg.LogLevel != "" {
-			cfg.LogLevel = fileCfg.LogLevel
-		}
-		if !setFlags["rpki-url"] && len(fileCfg.RPKIURLs) > 0 {
-			cfg.RPKIURLs = fileCfg.RPKIURLs
-		}
-		if !setFlags["aspa-url"] && len(fileCfg.ASPAURLs) > 0 {
-			cfg.ASPAURLs = fileCfg.ASPAURLs
-		}
-		if !setFlags["refresh"] && fileCfg.RefreshInterval != 0 {
-			cfg.RefreshInterval = fileCfg.RefreshInterval
-		}
-		if !setFlags["testmode"] {
-			cfg.TestMode = fileCfg.TestMode
-		}
+		mergeConfig(cfg, fileCfg, setFlags)
 	}
 
 	// Apply flag overrides (if they were set)
+	applyFlagOverrides(cfg, setFlags, listen, grpcAddr, loglevel, refresh, urls, aspaUrls, testMode)
+
+	// Final fallback for URLs if still empty
+	if len(cfg.RPKIURLs) == 0 {
+		cfg.RPKIURLs = RPKIURLs
+	}
+
+	return cfg, nil
+}
+
+func mergeConfig(cfg *Config, fileCfg Config, setFlags map[string]bool) {
+	if !setFlags["listen"] && fileCfg.ListenAddr != "" {
+		cfg.ListenAddr = fileCfg.ListenAddr
+	}
+	if !setFlags["grpc-listen"] && fileCfg.GRPCAddr != "" {
+		cfg.GRPCAddr = fileCfg.GRPCAddr
+	}
+	if !setFlags["loglevel"] && fileCfg.LogLevel != "" {
+		cfg.LogLevel = fileCfg.LogLevel
+	}
+	if !setFlags["rpki-url"] && len(fileCfg.RPKIURLs) > 0 {
+		cfg.RPKIURLs = fileCfg.RPKIURLs
+	}
+	if !setFlags["aspa-url"] && len(fileCfg.ASPAURLs) > 0 {
+		cfg.ASPAURLs = fileCfg.ASPAURLs
+	}
+	if !setFlags["refresh"] && fileCfg.RefreshInterval != 0 {
+		cfg.RefreshInterval = fileCfg.RefreshInterval
+	}
+	if !setFlags["testmode"] {
+		cfg.TestMode = fileCfg.TestMode
+	}
+}
+
+func applyFlagOverrides(cfg *Config, setFlags map[string]bool, listen, grpcAddr, loglevel *string, refresh *uint, urls, aspaUrls urlList, testMode *bool) {
 	if setFlags["listen"] {
 		cfg.ListenAddr = *listen
 	}
@@ -149,11 +164,4 @@ func LoadWithArgs(fs *flag.FlagSet, args []string) (*Config, error) {
 	if setFlags["testmode"] {
 		cfg.TestMode = *testMode
 	}
-
-	// Final fallback for URLs if still empty
-	if len(cfg.RPKIURLs) == 0 {
-		cfg.RPKIURLs = RPKIURLs
-	}
-
-	return cfg, nil
 }

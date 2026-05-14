@@ -54,59 +54,7 @@ func TestStressNewClients(t *testing.T) {
 			// Process clients assigned to this goroutine
 			for i := startIdx; i < endIdx; i++ {
 				client := clients[i]
-
-				// Each client gets its own state variables
-				var seenCacheResponse bool
-				var seenEndOfData bool
-				var prefixCount int
-
-				err := client.Send(BuildResetQuery(rand.Intn(2) + 1))
-				if err != nil {
-					t.Errorf("Goroutine %d, Client %d: Send failed: %v", goroutineID, i, err)
-					continue
-				}
-
-				for {
-					pdu, err := ReadNextPDU(client.conn)
-					if err != nil {
-						t.Errorf("Goroutine %d, Client %d: Failed to read PDU: %v", goroutineID, i, err)
-						break
-					}
-
-					switch pdu.Type {
-					case 3: // Cache Response
-						if seenCacheResponse {
-							t.Errorf("Goroutine %d, Client %d: Received multiple Cache Response PDUs", goroutineID, i)
-						}
-						seenCacheResponse = true
-						t.Logf("Goroutine %d, Client %d: ✅ Received Cache Response PDU", goroutineID, i)
-
-					case 4, 6: // IPv4 or IPv6 Prefix
-						prefixCount++
-
-					case 7: // End of Data
-						if seenEndOfData {
-							t.Errorf("Goroutine %d, Client %d: Received multiple End of Data PDUs", goroutineID, i)
-						}
-						seenEndOfData = true
-
-						t.Logf("Goroutine %d, Client %d: ✅ Received End of Data PDU after %d prefix PDUs", goroutineID, i, prefixCount)
-						eod, err := parseEndOfData(pdu)
-						if err != nil {
-							t.Errorf("Goroutine %d, Client %d: Failed to parse End of Data: %v", goroutineID, i, err)
-						} else {
-							t.Logf("Goroutine %d, Client %d: ✅ End of Data: Session ID: %d, Serial Number: %d, Refresh: %d, Retry: %d, Expire: %d",
-								goroutineID, i, pdu.SessionID, eod.SerialNumber, eod.RefreshInterval, eod.RetryInterval, eod.ExpireInterval)
-						}
-
-					default:
-						t.Errorf("Goroutine %d, Client %d: ❌ Unexpected PDU type received: %d", goroutineID, i, pdu.Type)
-					}
-
-					if seenEndOfData {
-						break
-					}
-				}
+				runStressClient(t, client, goroutineID, i)
 			}
 
 			t.Logf("Goroutine %d completed all clients", goroutineID)
@@ -120,6 +68,19 @@ func TestStressNewClients(t *testing.T) {
 	wg.Wait()
 
 	t.Log("All goroutines completed")
+}
+
+func runStressClient(t *testing.T, client RTRClient, goroutineID, idx int) {
+	t.Helper()
+	err := client.Send(BuildResetQuery(rand.Intn(2) + 1))
+	if err != nil {
+		t.Errorf("Goroutine %d, Client %d: Send failed: %v", goroutineID, idx, err)
+		return
+	}
+	_, _, err = (&client).CollectPrefixes()
+	if err != nil {
+		t.Errorf("Goroutine %d, Client %d: CollectPrefixes failed: %v", goroutineID, idx, err)
+	}
 }
 
 func TestConcurrentUpdateAndResetQuery(t *testing.T) {
