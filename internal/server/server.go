@@ -59,7 +59,20 @@ func New(cfg *config.Config, logger *zap.SugaredLogger) *Server {
 		cache:    newCache(),
 		wg:       sync.WaitGroup{},
 		httpClient: &http.Client{
-			Timeout: 1 * time.Minute,
+			Timeout: 5 * time.Minute,
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
 		},
 		upstreams: make(map[string]*UpstreamStatus),
 	}

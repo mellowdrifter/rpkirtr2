@@ -83,6 +83,10 @@ func (c *Client) Handle() error {
 	c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
 	ver, err := protocol.Negotiate(c.reader)
 	if err != nil {
+		if c.IsClosed() || isDisconnectError(err) {
+			c.logger.Info("Client disconnected during negotiation")
+			return nil
+		}
 		c.logger.Warnf("Negotiation failed: %v", err)
 		c.sendAndCloseError("NEGOTIATION_FAILED", protocol.UnsupportedVersion)
 		return err
@@ -95,6 +99,10 @@ func (c *Client) Handle() error {
 	c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
 	pdu, err := protocol.GetPDU(c.reader)
 	if err != nil {
+		if c.IsClosed() || isDisconnectError(err) {
+			c.logger.Info("Client disconnected waiting for initial query")
+			return nil
+		}
 		c.logger.Warnf("Failed to read initial PDU: %v", err)
 		c.sendAndCloseError("INVALID_REQUEST", protocol.InvalidRequest)
 		return err
@@ -109,7 +117,7 @@ func (c *Client) Handle() error {
 		c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
 		pdu, err := protocol.GetPDU(c.reader)
 		if err != nil {
-			if isDisconnectError(err) {
+			if c.IsClosed() || isDisconnectError(err) {
 				c.logger.Info("Client disconnected")
 				return nil
 			}
@@ -357,7 +365,7 @@ func (c *Client) sendAndCloseError(msg string, code protocol.ErrorCode) {
 }
 
 func isDisconnectError(err error) bool {
-	if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
 	var netErr *net.OpError
@@ -372,6 +380,7 @@ func (c *Client) Close() {
 		c.closed.Store(true)
 		c.logger.Infof("Closing connection to client: %s", c.id)
 		if c.conn != nil {
+			_ = c.conn.SetDeadline(time.Now())
 			_ = c.conn.Close()
 		}
 	})
