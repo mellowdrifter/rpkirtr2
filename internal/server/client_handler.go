@@ -20,6 +20,7 @@ const (
 	DefaultRetryInterval   = uint32(600)  // 1 - 7200
 	DefaultExpireInterval  = uint32(7200) // 600 - 172800
 	DefaultReadTimeout     = 2 * time.Minute
+	DefaultIdleTimeout     = time.Duration(DefaultExpireInterval)*time.Second + 10*time.Minute
 )
 
 type Client struct {
@@ -41,6 +42,7 @@ type rtrIntervals struct {
 	retryInterval   uint32
 	expireInterval  uint32
 	readTimeout     time.Duration
+	idleTimeout     time.Duration
 }
 
 // NewClient wraps a new connection into a Client instance.
@@ -70,6 +72,7 @@ func newRTRIntervals() *rtrIntervals {
 		retryInterval:   DefaultRetryInterval,
 		expireInterval:  DefaultExpireInterval,
 		readTimeout:     DefaultReadTimeout,
+		idleTimeout:     DefaultIdleTimeout,
 	}
 }
 
@@ -113,13 +116,20 @@ func (c *Client) Handle() error {
 	}
 
 	// Step 3: Main read-process loop
+	// Connected clients remain idle between refresh intervals (up to expireInterval).
+	// Set read deadline to idleTimeout (expireInterval + 10m grace period) so idle clients are not dropped prematurely.
 	for {
-		c.conn.SetReadDeadline(time.Now().Add(c.intervals.readTimeout))
+		c.conn.SetReadDeadline(time.Now().Add(c.intervals.idleTimeout))
 		pdu, err := protocol.GetPDU(c.reader)
 		if err != nil {
 			if c.IsClosed() || isDisconnectError(err) {
 				c.logger.Info("Client disconnected")
 				return nil
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				c.logger.Warnf("Client idle timeout exceeded (%v): %v", c.intervals.idleTimeout, err)
+				return err
 			}
 			c.logger.Warnf("Read error: %v", err)
 			c.sendAndCloseError("READ_ERROR", protocol.CorruptData)
@@ -365,11 +375,14 @@ func (c *Client) sendAndCloseError(msg string, code protocol.ErrorCode) {
 }
 
 func isDisconnectError(err error) bool {
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return false
+		}
 		return true
 	}
 	return false

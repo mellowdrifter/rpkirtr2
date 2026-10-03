@@ -2,9 +2,14 @@ package server
 
 import (
 	"bufio"
+	"errors"
+	"io"
 	"net"
 	"net/netip"
+	"os"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mellowdrifter/rpkirtr2/internal/protocol"
 	"go.uber.org/zap"
@@ -174,5 +179,111 @@ func TestNotify(t *testing.T) {
 	sn := pdu.(*protocol.SerialNotifyPDU)
 	if sn.Serial() != 2222 {
 		t.Errorf("Expected serial 2222, got %d", sn.Serial())
+	}
+}
+
+func TestIsDisconnectError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "EOF",
+			err:      io.EOF,
+			expected: true,
+		},
+		{
+			name:     "ErrUnexpectedEOF",
+			err:      io.ErrUnexpectedEOF,
+			expected: true,
+		},
+		{
+			name:     "net.ErrClosed",
+			err:      net.ErrClosed,
+			expected: true,
+		},
+		{
+			name: "net.OpError with timeout",
+			err: &net.OpError{
+				Op:  "read",
+				Net: "tcp",
+				Err: os.ErrDeadlineExceeded,
+			},
+			expected: false,
+		},
+		{
+			name: "net.OpError without timeout (ECONNRESET)",
+			err: &net.OpError{
+				Op:  "read",
+				Net: "tcp",
+				Err: syscall.ECONNRESET,
+			},
+			expected: true,
+		},
+		{
+			name:     "arbitrary error",
+			err:      errors.New("some application error"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDisconnectError(tt.err)
+			if got != tt.expected {
+				t.Errorf("isDisconnectError(%v) = %v; want %v", tt.err, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestClientIdleTimeout(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	c := newCache()
+	c.session = 100
+	c.serial = 1
+
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	client := NewClient(serverConn, logger, c)
+	// Override idleTimeout to a short duration for test
+	client.intervals.idleTimeout = 100 * time.Millisecond
+
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Handle()
+	}()
+
+	// Send Initial Reset Query (version is peeked from this PDU)
+	rq := protocol.NewResetQueryPDU(1)
+	if err := rq.Write(clientConn); err != nil {
+		t.Fatalf("Failed to write Reset Query: %v", err)
+	}
+
+	// Read responses until End of Data
+	respReader := bufio.NewReader(clientConn)
+	for {
+		pdu, err := protocol.GetPDU(respReader)
+		if err != nil {
+			t.Fatalf("Failed to read PDU: %v", err)
+		}
+		if pdu.Type() == protocol.EndOfData {
+			break
+		}
+	}
+
+	// 3. Client sits idle past the 100ms idleTimeout
+	select {
+	case err := <-done:
+		// Should exit with timeout error
+		var netErr net.Error
+		if !errors.As(err, &netErr) || !netErr.Timeout() {
+			t.Errorf("Expected timeout error after idleTimeout, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Handle() did not exit after idle timeout")
 	}
 }
