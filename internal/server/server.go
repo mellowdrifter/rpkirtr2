@@ -34,8 +34,11 @@ type Server struct {
 
 	// smaller fields last
 	shuttingDown atomic.Bool
+	stopOnce     sync.Once
+	stopErr      error
 	grpcServer   *grpc.Server
 
+	stateMu   sync.Mutex
 	upstreamsMu sync.RWMutex
 	upstreams   map[string]*UpstreamStatus
 
@@ -124,19 +127,24 @@ func (s *Server) Start() error {
 
 // ServeListener starts the server using the provided listener.
 func (s *Server) ServeListener(l net.Listener) error {
+	s.stateMu.Lock()
+	if s.shuttingDown.Load() {
+		s.stateMu.Unlock()
+		_ = l.Close()
+		return nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelBackground = cancel
-
 	s.listener = l
-	s.logger.Infof("Daemon running with session id %d", s.getSession())
-
-	// Start background update ticker
 	s.wg.Add(1)
 	go s.periodicROAUpdater(ctx)
+	s.stateMu.Unlock()
+
+	s.logger.Infof("Daemon running with session id %d", s.getSession())
 
 	// Listen for clients
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := l.Accept()
 		if err != nil {
 			if s.shuttingDown.Load() {
 				return nil // graceful exit
@@ -181,47 +189,54 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 // Stop shuts down the server gracefully
 func (s *Server) Stop(timeout time.Duration) error {
-	s.shuttingDown.Store(true)
+	s.stopOnce.Do(func() {
+		s.shuttingDown.Store(true)
 
-	if s.cancelBackground != nil {
-		s.cancelBackground()
-	}
+		s.stateMu.Lock()
+		if s.cancelBackground != nil {
+			s.cancelBackground()
+		}
 
-	s.logger.Info("Shutting down listener...")
-	if s.listener != nil {
-		_ = s.listener.Close()
-	}
+		s.logger.Info("Shutting down listener...")
+		if s.listener != nil {
+			_ = s.listener.Close()
+		}
+		s.stateMu.Unlock()
 
-	if s.grpcServer != nil {
-		s.logger.Info("Stopping gRPC server...")
-		s.grpcServer.GracefulStop()
-	}
+		if s.grpcServer != nil {
+			s.logger.Info("Stopping gRPC server...")
+			s.grpcServer.GracefulStop()
+		}
 
-	// Close all client connections
-	s.clientsMu.Lock()
-	for _, client := range s.clients {
-		client.Close()
-	}
-	s.clientsMu.Unlock()
+		// Close all client connections
+		s.clientsMu.Lock()
+		for _, client := range s.clients {
+			client.Close()
+		}
+		s.clientsMu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
+		done := make(chan struct{})
+		go func() {
+			s.wg.Wait()
+			close(done)
+		}()
 
-	select {
-	case <-done:
-		s.logger.Info("All connections closed cleanly")
-		return nil
-	case <-time.After(timeout):
-		s.logger.Warn("Shutdown timed out; some clients may still be active")
-		return fmt.Errorf("timeout waiting for shutdown")
-	}
+		select {
+		case <-done:
+			s.logger.Info("All connections closed cleanly")
+		case <-time.After(timeout):
+			s.logger.Warn("Shutdown timed out; some clients may still be active")
+			s.stopErr = fmt.Errorf("timeout waiting for shutdown")
+		}
+	})
+
+	return s.stopErr
 }
 
 // ListenAddr returns the actual address the server is listening on.
 func (s *Server) ListenAddr() string {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 	if s.listener != nil {
 		return s.listener.Addr().String()
 	}

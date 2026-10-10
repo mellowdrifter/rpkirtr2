@@ -1,6 +1,6 @@
 module github.com/mellowdrifter/rpkirtr2
 
-go 1.26.0
+go 1.27.1
 
 require (
 	github.com/golang/protobuf v1.5.4
